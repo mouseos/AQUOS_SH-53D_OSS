@@ -1,0 +1,7 @@
+&fih_apr {
+	fih_apr,pon = "0x00000000";
+	fih_apr,poff = "0x00000000";
+	fih_apr,rere = "0x00000000";
+	fih_apr,bm = "normal";
+	fih_apr,br = "reboot";
+};

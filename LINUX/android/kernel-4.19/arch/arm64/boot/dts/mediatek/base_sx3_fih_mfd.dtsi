@@ -1,0 +1,10 @@
+&fih_mfd {
+	fih_mfd,pid = "SX3TPE0010100001";
+	fih_mfd,bt_mac = "0123456789AB";
+	fih_mfd,wifi_mac = "0123456789AB";
+	fih_mfd,wifi_mac2 = "0123456789AB";
+	fih_mfd,imei_1 = "0123456789ABCDE";
+	fih_mfd,imei_2 = "0123456789ABCDE";
+	fih_mfd,meid_1 = "0123456789ABCD";
+	fih_mfd,meid_2 = "0123456789ABCD";
+};

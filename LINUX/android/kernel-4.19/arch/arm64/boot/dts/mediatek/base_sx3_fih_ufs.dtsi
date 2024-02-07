@@ -1,0 +1,3 @@
+&fih_ufs {
+	fih_ufs,ufsinfo = "UNKNOWN UFS 32GB";
+};

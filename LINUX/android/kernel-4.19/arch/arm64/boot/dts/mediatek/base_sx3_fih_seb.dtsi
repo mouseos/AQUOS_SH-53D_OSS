@@ -1,0 +1,5 @@
+&fih_seb {
+	fih_seb,enabled = "2";
+	fih_seb,serialno = "000000000000";
+	fih_seb,unlocked = "2";
+};

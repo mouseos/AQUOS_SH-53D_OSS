@@ -1,0 +1,4 @@
+# Prebuilt kernel binaries exceeding GitHub's 100 MB per-file limit.
+# See README.md — these are build outputs, not source.
+LINUX/android/kernel/prebuilts/5.10/arm64/vmlinux
+LINUX/android/kernel/prebuilts/5.10/arm64/vmlinux-allsyms

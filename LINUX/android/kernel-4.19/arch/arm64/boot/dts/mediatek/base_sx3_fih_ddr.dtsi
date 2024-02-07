@@ -1,0 +1,4 @@
+&fih_ddr {
+	fih_ddr,draminfo = "UNKNOWN LPDDR4x 4096MB";
+	fih_ddr,dramtest = "none";
+};

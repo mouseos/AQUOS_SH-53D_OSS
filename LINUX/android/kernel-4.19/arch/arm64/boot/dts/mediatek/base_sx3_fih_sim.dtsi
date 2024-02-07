@@ -1,0 +1,3 @@
+&fih_sim {
+	fih_sim,simslot = "1";
+};

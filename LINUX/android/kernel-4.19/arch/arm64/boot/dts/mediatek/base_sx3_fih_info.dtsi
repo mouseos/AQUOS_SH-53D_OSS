@@ -1,0 +1,7 @@
+&fih_info {
+	fih_info,model = "MT6833,SX3";
+	fih_info,devmodel = "MTK";
+	fih_info,baseband = "0.0";
+	fih_info,bandinfo = "W_2_4_5^L_2_3_4_5_12_14_29_30_66^N_2_5_66";
+	fih_info,hwmodel = "FIH";
+};

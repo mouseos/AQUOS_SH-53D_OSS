@@ -1,0 +1,1 @@
+obj-$(CONFIG_TOUCHSCREEN_FT5446U) += focaltech_upgrade_ft5446u.o

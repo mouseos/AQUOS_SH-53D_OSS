@@ -1,0 +1,15 @@
+/* OVERLAY,SX3,PRE_EVT */
+#include "overlay_sx3_pre_evt2_fih_info.dtsi"
+#include "overlay_sx3_pre_evt_fih_fp.dtsi"
+#include <dt-bindings/gpio/gpio.h>
+
+
+/* SD card insert detect high active change */
+&mmc1 {
+	cd-gpios = <&pio 4 GPIO_ACTIVE_HIGH>;
+};
+
+&mt6360_ldo {
+	sdcard_det_en = <1>;
+	sdcard_hlact = <0>;
+};
