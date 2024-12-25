@@ -108,7 +108,7 @@ void ref_ext_amp_switch(bool enable)
     }
 }
 
-void ref_parse_dts_node()
+void ref_parse_dts_node(void)
 {
     struct device_node *np = of_find_compatible_node(NULL, NULL, "ref_audio,audio");
     g_spk_amp_data.gpio_no = -1;
@@ -201,7 +201,8 @@ static int ref_AudDrv_GPIO_Amp_Sel_GetMode(int mode)
     return ref_amp_mode;
 }
 
-static void ref_AudDrv_GPIO_Single_Speaker_TLTH_delay(){
+static void ref_AudDrv_GPIO_Single_Speaker_TLTH_delay(void)
+{
     if(g_pa_type == 1){
         udelay(FS_GAP_HL);
     } else {

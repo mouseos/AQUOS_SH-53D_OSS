@@ -145,6 +145,17 @@ struct damage_info_data{
 	long int total_coulomb;
 };
 
+struct damage_info_data_sx4{
+	int bat_temp_ratio;
+	int pre_bat_temp_ratio;
+	int bat_vol_ratio;
+	int pre_bat_vol_ratio;
+	long int start_time;
+	long int end_time;
+	long int total_time;
+
+};
+
 /* battery thermal protection */
 enum bat_temp_state_enum {
 	BAT_TEMP_LOW = 0,
@@ -194,6 +205,9 @@ struct charger_custom_data {
 	int jeita_temp_t1_to_t2_cv;
 	int jeita_temp_t0_to_t1_cv;
 	int jeita_temp_below_t0_cv;
+	int jeita_temp_t3_to_t4_bat_cur;
+	int jeita_temp_t2_to_t3_bat_cur;
+	int jeita_temp_t1_to_t2_bat_cur;
 	int temp_t4_thres;
 	int temp_t4_thres_minus_x_degree;
 	int temp_t3_thres;
@@ -446,6 +460,7 @@ struct charger_manager {
 	/*direct_charging*/
 	bool direct_charging_en;
 	struct damage_info_data damage_info;
+	struct damage_info_data_sx4 damage_info_sx4;
 };
 
 /* charger related module interface */

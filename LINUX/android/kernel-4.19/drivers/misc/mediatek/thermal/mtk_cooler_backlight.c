@@ -260,10 +260,16 @@ static void mtk_cl_backlight_set_max_brightness_limit(void)
 			sprintf(event, "BACKLIGHT=0");
 			kobject_uevent_env(&(cl_backlight_dev[nCoolerId]->device.kobj),	KOBJ_CHANGE, envp);
 			g_backlight_restrict_notified = 1;
+#ifdef CONFIG_FIH_SX4
+			printk("FIHBATTLOG::125\n"); // 125 SHTHERMAL_LCD_RESTRICT
+#endif
 		} else if(g_backlight_level == 0 && g_backlight_restrict_notified == 1) { // Release (SHTHERMAL_LCDBRIGHTNESS_NORMAL)
 			sprintf(event, "BACKLIGHT=1");
 			kobject_uevent_env(&(cl_backlight_dev[nCoolerId]->device.kobj),	KOBJ_CHANGE, envp);
 			g_backlight_restrict_notified = 0;
+#ifdef CONFIG_FIH_SX4
+			printk("FIHBATTLOG::126\n"); // 126 SHTHERMAL_LCD_RELEASE
+#endif
 		}
 
 		mtk_cl_backlight_set_max_brightness_limit();

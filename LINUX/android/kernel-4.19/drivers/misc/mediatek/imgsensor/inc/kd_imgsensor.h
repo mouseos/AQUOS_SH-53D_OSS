@@ -114,18 +114,53 @@
  *
  ************************************************************************/
 /* SENSOR CHIP VERSION */
-/*SX3*/
+/* SX3 */
+#if defined(S5K3L6_MIPI_RAW)
 #define S5K3L6_SENSOR_ID                        0x30C6
+#endif
+
+#if defined(HI556_MIPI_RAW)
 #define HI556_SENSOR_ID                         0x0556
+#endif
+
+/* SX4 */
+#if defined(S5KJNSSQ33_MIPI_RAW)
+#define S5KJNSSQ33_SENSOR_ID                    0x38EE
+#endif
+
+#if defined(S5K4H7_MIPI_RAW)
+#define S5K4H7_SENSOR_ID						0x487B
+#endif
+
+#if defined(GC02M1B_MIPI_MONO)
+#define GC02M1B_SENSOR_ID                       0x02e0
+#endif
 
 /* CAMERA DRIVER NAME */
 #define CAMERA_HW_DEVNAME                       "kd_camera_hw"
 
 /* SENSOR DEVICE DRIVER NAME */
-/*SX3*/
+/* SX3 */
+#if defined(S5K3L6_MIPI_RAW)
 #define SENSOR_DRVNAME_S5K3L6_MIPI_RAW          "s5k3l6_mipi_raw"
-#define SENSOR_DRVNAME_HI556_MIPI_RAW           "hi556_mipi_raw"
+#endif
 
+#if defined(HI556_MIPI_RAW)
+#define SENSOR_DRVNAME_HI556_MIPI_RAW           "hi556_mipi_raw"
+#endif
+
+/* SX4 */
+#if defined(S5KJNSSQ33_MIPI_RAW)
+#define SENSOR_DRVNAME_S5KJNSSQ33_MIPI_RAW      "s5kjnssq33_mipi_raw"
+#endif
+
+#if defined(S5K4H7_MIPI_RAW)
+#define SENSOR_DRVNAME_S5K4H7_MIPI_RAW           "s5k4h7_mipi_raw"
+#endif
+
+#if defined(GC02M1B_MIPI_MONO)
+#define SENSOR_DRVNAME_GC02M1B_MIPI_MONO        "gc02m1b_mipi_mono"
+#endif
 /******************************************************************************
  *
  ******************************************************************************/

@@ -1,0 +1,11 @@
+/* BASE,MT6833,SX4 */
+#include "base_sx3_fih_apr.dtsi"
+#include "base_sx3_fih_binf.dtsi"
+#include "base_sx3_fih_ddr.dtsi"
+#include "base_sx3_fih_fver.dtsi"
+#include "base_sx3_fih_info.dtsi"
+#include "base_sx3_fih_mfd.dtsi"
+#include "base_sx3_fih_pdd.dtsi"
+#include "base_sx3_fih_seb.dtsi"
+#include "base_sx3_fih_sim.dtsi"
+#include "base_sx3_fih_ufs.dtsi"

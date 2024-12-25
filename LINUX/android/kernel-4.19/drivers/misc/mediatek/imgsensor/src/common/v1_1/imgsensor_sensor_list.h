@@ -16,8 +16,26 @@ struct IMGSENSOR_INIT_FUNC_LIST {
 };
 
 /*SX3*/
+#if defined(S5K3L6_MIPI_RAW)
 UINT32 S5K3L6_MIPI_RAW_SensorInit(struct SENSOR_FUNCTION_STRUCT **pfFunc);
+#endif
+
+#if defined(HI556_MIPI_RAW)
 UINT32 HI556_MIPI_RAW_SensorInit(struct SENSOR_FUNCTION_STRUCT **pfFunc);
+#endif
+
+/* SX4 */
+#if defined(S5KJNSSQ33_MIPI_RAW)
+UINT32 S5KJNSSQ33_MIPI_RAW_SensorInit(struct SENSOR_FUNCTION_STRUCT **pfFunc);
+#endif
+
+#if defined(S5K4H7_MIPI_RAW)
+UINT32 S5K4H7_MIPI_RAW_SensorInit(struct SENSOR_FUNCTION_STRUCT **pfFunc);
+#endif
+
+#if defined(GC02M1B_MIPI_MONO)
+UINT32 GC02M1B_MIPI_MONO_SensorInit(struct SENSOR_FUNCTION_STRUCT **pfFunc);
+#endif
 
 extern struct IMGSENSOR_SENSOR_LIST gimgsensor_sensor_list[];
 

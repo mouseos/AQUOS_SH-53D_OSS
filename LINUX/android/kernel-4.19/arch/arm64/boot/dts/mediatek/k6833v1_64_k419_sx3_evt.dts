@@ -362,7 +362,7 @@
 };
 /* NFC end */
 
-#include "mediatek/cust_mt6833_camera.dtsi"
+#include "mediatek/cust_mt6833_sx3_camera.dtsi"
 #include <k6833v1_64_k419_sx3/cust.dtsi>
 
 /* FIH */

@@ -66,6 +66,23 @@ static struct thermal_cooling_device *cl_ushutdown_warn_dev[MAX_NUM_INSTANCE_MTK
 static unsigned long cl_ushutdown_warn_state[MAX_NUM_INSTANCE_MTK_COOLER_USHUTDOWN] = { 0 };
 static time64_t cl_ushutdown_warn_ts_start[MAX_NUM_INSTANCE_MTK_COOLER_USHUTDOWN] = { 0 };
 
+static void notify_thermal_shutdown(const char *src, struct thermal_cooling_device *cdev) {
+	static bool is_notified = false;
+	if (is_notified == false) {
+		char event[20] = "SHUTDOWN=1";
+		char *envp[2] = { event, NULL };
+		/* send uevent to notify current call must be dropped */
+		kobject_uevent_env(&(cdev->device.kobj), KOBJ_CHANGE, envp);
+		is_notified = true;
+		mtk_cooler_ushutdown_dprintk("%s trigger shutdown", src);
+#ifdef CONFIG_FIH_SX4
+		printk("FIHBATTLOG::124\n"); // 124 SHTHERMAL_POWER_OFF
+#endif
+	} else {
+		mtk_cooler_ushutdown_dprintk("%s trigger shutdown (silence)", src);
+	}
+}
+
 static ssize_t _cltsd_write(struct file *filp, const char __user *buf, size_t len, loff_t *data)
 {
 	/* int ret = 0; */
@@ -270,15 +287,28 @@ static int mtk_cl_ushutdown_timer_set_cur_state (struct thermal_cooling_device *
 
 						mtk_cooler_ushutdown_dprintk("%s %s notify shutdown-in-3-min by uevent [%s]\n", __func__, cdev->type, event);
 						kobject_uevent_env(&(cdev->device.kobj), KOBJ_CHANGE, envp);
+#ifdef CONFIG_FIH_SX4
+						printk("FIHBATTLOG::123\n"); // 123 SHTHERMAL_POWER_OFF_DIALOG
+#endif
 					}
 					cl_ushutdown_timer_state[i].ui_warn_shown = 1;
 					global_ui_warn_shown++;
 				} else if ((curr_time - cl_ushutdown_timer_state[i].start_time_a + cl_ushutdown_timer_state[i].count_time_a) > cl_ushutdown_timer_state[i].timer_a) {
-					char event[20] = "SHUTDOWN=1";
-					char *envp[2] = { event, NULL };
+					notify_thermal_shutdown(__func__, cdev);
+#if 0
+					static bool is_notified = false;
+					if (is_notified == false) {
+						char event[20] = "SHUTDOWN=1";
+						char *envp[2] = { event, NULL };
 
-					mtk_cooler_ushutdown_dprintk("%s %s notify shutdown by uevent [%s]\n", __func__, cdev->type, event);
-					kobject_uevent_env(&(cdev->device.kobj), KOBJ_CHANGE, envp);
+						mtk_cooler_ushutdown_dprintk("%s %s notify shutdown by uevent [%s]\n", __func__, cdev->type, event);
+#ifdef CONFIG_FIH_SX4
+						printk("FIHBATTLOG::124\n"); // 124 SHTHERMAL_POWER_OFF
+#endif
+						kobject_uevent_env(&(cdev->device.kobj), KOBJ_CHANGE, envp);
+						is_notified = true;
+					}
+#endif
 				}
 			}
 			break;
@@ -326,12 +356,21 @@ static int mtk_cl_ushutdown_set_cur_state (struct thermal_cooling_device *cdev, 
 	*((unsigned long *)cdev->devdata) = state;
 
 	if (state == 1) {
-		char event[20] = "SHUTDOWN=1";
-		char *envp[2] = { event, NULL };
+		notify_thermal_shutdown(__func__, cdev);
+#if 0
+		static bool is_notified = false;
+		if (is_notified == false) {
+			char event[20] = "SHUTDOWN=1";
+			char *envp[2] = { event, NULL };
 
-		mtk_cooler_ushutdown_dprintk("%s %s notify shutdown by uevent [%s]\n", __func__, cdev->type, event);
-		//printk("FIHBATTLOG::124\n"); // 124 SHTHERMAL_POWER_OFF
-		kobject_uevent_env(&(cdev->device.kobj), KOBJ_CHANGE, envp);
+			mtk_cooler_ushutdown_dprintk("%s %s notify shutdown by uevent [%s]\n", __func__, cdev->type, event);
+#ifdef CONFIG_FIH_SX4
+			printk("FIHBATTLOG::124\n"); // 124 SHTHERMAL_POWER_OFF
+#endif
+			kobject_uevent_env(&(cdev->device.kobj), KOBJ_CHANGE, envp);
+			is_notified = true;
+		}
+#endif
 	}
 
 	return 0;
@@ -360,17 +399,28 @@ static int mtk_cl_ushutdown_warn_set_cur_state (struct thermal_cooling_device *c
 			char *envp[2] = { event, NULL };
 
 			mtk_cooler_ushutdown_dprintk("%s %s notify shutdown-in-3-min by uevent [%s]\n", __func__, cdev->type, event);
-			//printk("FIHBATTLOG::123\n"); // 123 SHTHERMAL_POWER_OFF_DIALOG
+#ifdef CONFIG_FIH_SX4
+			printk("FIHBATTLOG::123\n"); // 123 SHTHERMAL_POWER_OFF_DIALOG
+#endif
 			kobject_uevent_env(&(cdev->device.kobj), KOBJ_CHANGE, envp);
 			cl_ushutdown_warn_ts_start[i] =  ktime_get_seconds();
 		} else {
 			if ((ktime_get_seconds() - cl_ushutdown_warn_ts_start[i]) >= 180) { // High Temp Alarm keep for 3 min
-				char event[20] = "SHUTDOWN=1";
-				char *envp[2] = { event, NULL };
+				notify_thermal_shutdown(__func__, cdev);
+#if 0
+				static bool is_notified = false;
+				if (is_notified == false) {
+					char event[20] = "SHUTDOWN=1";
+					char *envp[2] = { event, NULL };
 
-				mtk_cooler_ushutdown_dprintk("%s %s notify shutdown by uevent [%s]\n", __func__, cdev->type, event);
-				//printk("FIHBATTLOG::124\n"); // 124 SHTHERMAL_POWER_OFF
-				kobject_uevent_env(&(cdev->device.kobj), KOBJ_CHANGE, envp);
+					mtk_cooler_ushutdown_dprintk("%s %s notify shutdown by uevent [%s]\n", __func__, cdev->type, event);
+#ifdef CONFIG_FIH_SX4
+					printk("FIHBATTLOG::124\n"); // 124 SHTHERMAL_POWER_OFF
+#endif
+					kobject_uevent_env(&(cdev->device.kobj), KOBJ_CHANGE, envp);
+					is_notified = true;
+				}
+#endif
 			}
 		}
 

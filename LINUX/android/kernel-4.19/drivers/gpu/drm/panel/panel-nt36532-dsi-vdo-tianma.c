@@ -38,7 +38,9 @@ struct lcm {
 	struct device *dev;
 	struct drm_panel panel;
 	struct gpio_desc *reset_gpio;
+	struct gpio_desc *led_en_gpio;
 	struct regulator *it6113_v1_8, *lcm_v1_8;
+	struct gpio_desc *it6113_v1_8_en, *it6113_v1_0_en;
 	struct it6112 *it6112_client;
 
 	bool prepared;
@@ -137,6 +139,9 @@ static void lcm_panel_init(struct lcm *ctx)
 {
 	pr_info("%s+++\n",__func__);
 
+	gpiod_set_value(ctx->it6113_v1_0_en, 1);
+	gpiod_set_value(ctx->it6113_v1_8_en, 1);
+
 	lcm_regulator_enable(ctx->it6113_v1_8, 1800000);
 	lcm_regulator_enable(ctx->lcm_v1_8, 1800000);
 
@@ -188,6 +193,9 @@ static int lcm_unprepare(struct drm_panel *panel)
 	lcd_set_bias(0);
 	lcm_regulator_disable(ctx->it6113_v1_8);
 	lcm_regulator_disable(ctx->lcm_v1_8);
+	gpiod_set_value(ctx->it6113_v1_0_en, 0);
+	gpiod_set_value(ctx->it6113_v1_8_en, 0);
+	gpiod_set_value(ctx->led_en_gpio, 0);
 	pr_info("%s ---\n", __func__);
 	return 0;
 }
@@ -201,6 +209,7 @@ static int lcm_prepare(struct drm_panel *panel)
 	if (ctx->prepared)
 		return 0;
 
+	gpiod_set_value(ctx->led_en_gpio, 1);
 	lcd_set_bias(1);
 
 	lcm_panel_init(ctx);
@@ -400,6 +409,30 @@ static int lcm_probe(struct mipi_dsi_device *dsi)
 		return PTR_ERR(ctx->reset_gpio);
 	}
 	gpiod_set_value(ctx->reset_gpio, 1);
+
+	ctx->led_en_gpio = devm_gpiod_get(dev, "led-en", GPIOD_OUT_HIGH);
+	if (IS_ERR(ctx->led_en_gpio)) {
+		dev_info(dev, "%s: cannot get led_en_gpio %ld\n",
+				__func__, PTR_ERR(ctx->led_en_gpio));
+		return PTR_ERR(ctx->led_en_gpio);
+	}
+	gpiod_set_value(ctx->led_en_gpio, 1);
+
+	ctx->it6113_v1_0_en = devm_gpiod_get(dev, "it6113-1v0", GPIOD_OUT_HIGH);
+	if (IS_ERR(ctx->it6113_v1_0_en)) {
+		dev_info(dev, "%s: cannot get it6113_v1_0_en-gpios %ld\n",
+				__func__, PTR_ERR(ctx->it6113_v1_0_en));
+		return PTR_ERR(ctx->it6113_v1_0_en);
+	}
+	gpiod_set_value(ctx->it6113_v1_0_en, 1);
+
+	ctx->it6113_v1_8_en = devm_gpiod_get(dev, "it6113-1v8", GPIOD_OUT_HIGH);
+	if (IS_ERR(ctx->it6113_v1_8_en)) {
+		dev_info(dev, "%s: cannot get it6113_v1_8_en-gpios %ld\n",
+				__func__, PTR_ERR(ctx->it6113_v1_8_en));
+		return PTR_ERR(ctx->it6113_v1_8_en);
+	}
+	gpiod_set_value(ctx->it6113_v1_8_en, 1);
 
 	ctx->it6113_v1_8 = devm_regulator_get(dev, "reg-6113-v1_8");
 	if (IS_ERR(ctx->it6113_v1_8)) {

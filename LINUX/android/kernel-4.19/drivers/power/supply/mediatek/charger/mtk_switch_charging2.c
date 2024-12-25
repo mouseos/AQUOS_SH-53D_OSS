@@ -59,6 +59,11 @@
 #include "mtk_switch_charging.h"
 #include "mtk_intf.h"
 
+#include "mtk_charger_init.h"
+
+int input_current_max = 0;
+extern int is_pd_type;
+
 struct tag_bootmode {
 	u32 size;
 	u32 tag;
@@ -113,18 +118,18 @@ static void jeita_current_limit(struct charger_manager *info)
 			}
 			else if (info->sw_jeita.sm == TEMP_T1_TO_T2)
 			{
-				info->data.jeita_bat_current = 746000;//save jeita current to compare PD,DCP and CDP current
+				info->data.jeita_bat_current = info->data.jeita_temp_t1_to_t2_bat_cur;//save jeita current to compare PD,DCP and CDP current
 				chr_err("[%s] TEMP_T1_TO_T2 set charging_current_limit = %d\n",__func__,info->data.jeita_bat_current);
 				
 			}
 			else if (info->sw_jeita.sm == TEMP_T2_TO_T3)
 			{
-				info->data.jeita_bat_current = 2611000;//save jeita current to compare PD,DCP and CDP current
+				info->data.jeita_bat_current = info->data.jeita_temp_t2_to_t3_bat_cur;//save jeita current to compare PD,DCP and CDP current
 				chr_err("[%s] TEMP_T2_TO_T3 set charging_current_limit = %d\n",__func__,info->data.jeita_bat_current);
 				
 			}else if (info->sw_jeita.sm == TEMP_T3_TO_T4)
 			{
-				info->data.jeita_bat_current = 1865000;//save jeita current to compare PD,DCP and CDP current
+				info->data.jeita_bat_current = info->data.jeita_temp_t3_to_t4_bat_cur;//save jeita current to compare PD,DCP and CDP current
 				chr_err("[%s] TEMP_T3_TO_T4 set charging_current_limit = %d\n",__func__,info->data.jeita_bat_current);
 			
 			}
@@ -144,6 +149,9 @@ static void swchg_select_charging_current_limit(struct charger_manager *info)
 	struct device_node *boot_node = NULL;
 	struct tag_bootmode *tag = NULL;
 	int boot_mode = 11;//UNKNOWN_BOOT
+
+	struct power_supply *ac_psy = power_supply_get_by_name("ac");
+	union power_supply_propval val_psy_dcp_cur;
 
 	dev = &(info->pdev->dev);
 	if (dev != NULL) {
@@ -376,33 +384,33 @@ static void swchg_select_charging_current_limit(struct charger_manager *info)
 			}
 			else if (info->sw_jeita.sm == TEMP_T1_TO_T2)
 			{
-				if(pdata->charging_current_limit > 746000 ||info->sw_jeita.pre_sm_customized == TEMP_T0_TO_T1||info->sw_jeita.pre_sm_customized == TEMP_T2_TO_T3){
-					pdata->charging_current_limit = 746000;
+				if(pdata->charging_current_limit > info->data.jeita_temp_t1_to_t2_bat_cur ||info->sw_jeita.pre_sm_customized == TEMP_T0_TO_T1||info->sw_jeita.pre_sm_customized == TEMP_T2_TO_T3){
+					pdata->charging_current_limit = info->data.jeita_temp_t1_to_t2_bat_cur;
 					info->sw_jeita.pre_sm_customized = TEMP_T1_TO_T2; //only use for jeita current to save pre state
 					chr_err("[current_limit] %s %d: TEMP_T1_TO_T2 set IBAT current limit = %d\n", __func__,__LINE__,pdata->charging_current_limit);
 				}
-				info->data.jeita_bat_current = 746000;//save jeita current to compare PD,DCP and CDP current
+				info->data.jeita_bat_current = info->data.jeita_temp_t1_to_t2_bat_cur;//save jeita current to compare PD,DCP and CDP current
 				chr_err("[%s] TEMP_T1_TO_T2 charging_current_limit = %d\n",__func__,pdata->charging_current_limit);
 				
 			}
 			else if (info->sw_jeita.sm == TEMP_T2_TO_T3)
 			{
-				if(pdata->charging_current_limit > 2611000 ||info->sw_jeita.pre_sm_customized == TEMP_T1_TO_T2||info->sw_jeita.pre_sm_customized == TEMP_T3_TO_T4){
-					pdata->charging_current_limit = 2611000;
+				if(pdata->charging_current_limit > info->data.jeita_temp_t2_to_t3_bat_cur ||info->sw_jeita.pre_sm_customized == TEMP_T1_TO_T2||info->sw_jeita.pre_sm_customized == TEMP_T3_TO_T4){
+					pdata->charging_current_limit = info->data.jeita_temp_t2_to_t3_bat_cur;
 					info->sw_jeita.pre_sm_customized = TEMP_T2_TO_T3;//only use for jeita current to save pre state
 					chr_err("[current_limit] %s %d: TEMP_T2_TO_T3 set IBAT current limit = %d\n", __func__,__LINE__,pdata->charging_current_limit);
 				}
-				info->data.jeita_bat_current = 2611000;//save jeita current to compare PD,DCP and CDP current
+				info->data.jeita_bat_current = info->data.jeita_temp_t2_to_t3_bat_cur;//save jeita current to compare PD,DCP and CDP current
 				chr_err("[%s] TEMP_T2_TO_T3 charging_current_limit = %d\n",__func__,pdata->charging_current_limit);
 				
 			}else if (info->sw_jeita.sm == TEMP_T3_TO_T4)
 			{
-				if(pdata->charging_current_limit > 1865000 ||info->sw_jeita.pre_sm_customized == TEMP_T2_TO_T3){
-					pdata->charging_current_limit = 1865000;
+				if(pdata->charging_current_limit > info->data.jeita_temp_t3_to_t4_bat_cur ||info->sw_jeita.pre_sm_customized == TEMP_T2_TO_T3){
+					pdata->charging_current_limit = info->data.jeita_temp_t3_to_t4_bat_cur;
 					info->sw_jeita.pre_sm_customized = TEMP_T3_TO_T4;//only use for jeita current to save pre state
 					chr_err("[current_limit] %s %d: TEMP_T3_TO_T4 set IBAT current limit = %d\n", __func__,__LINE__,pdata->charging_current_limit);
 				}
-				info->data.jeita_bat_current = 1865000;//save jeita current to compare PD,DCP and CDP current
+				info->data.jeita_bat_current = info->data.jeita_temp_t3_to_t4_bat_cur;//save jeita current to compare PD,DCP and CDP current
 				chr_err("[%s] TEMP_T3_TO_T4 charging_current_limit = %d\n",__func__,pdata->charging_current_limit);
 			
 			}
@@ -443,7 +451,10 @@ done:
 		pdata->input_current_limit = 0;
 		chr_err("[current_limit] %s %d: set IBUS current limit = %d\n", __func__,__LINE__,pdata->input_current_limit);
 	}
-
+	input_current_max = pdata->input_current_limit;
+	power_supply_get_property(ac_psy, POWER_SUPPLY_PROP_CURRENT_MAX, &val_psy_dcp_cur);
+	power_supply_changed(ac_psy);
+	chr_err(" %s %d: update input_current_limit = %d\n", __func__,__LINE__,val_psy_dcp_cur.intval);
 	chr_err("force:%d thermal:%d,%d pe4:%d,%d,%d setting:%d %d sc:%d,%d,%d type:%d usb_unlimited:%d usbif:%d usbsm:%d aicl:%d atm:%d\n",
 		_uA_to_mA(pdata->force_charging_current),
 		_uA_to_mA(pdata->thermal_input_current_limit),
@@ -842,11 +853,17 @@ static int select_pdc_charging_current_limit(struct charger_manager *info)
 	struct charger_data *pdata;
 	u32 ichg1_min = 0, aicr1_min = 0;
 	int ret = 0;
+	struct power_supply *ac_psy = power_supply_get_by_name("ac");
+	union power_supply_propval val_psy_pd_cur;
 
 	pdata = &info->chg1_data;
 
 	pdata->input_current_limit =
 		info->data.pd_charger_current;
+	input_current_max = pdata->input_current_limit;
+	power_supply_get_property(ac_psy, POWER_SUPPLY_PROP_CURRENT_MAX, &val_psy_pd_cur);
+	power_supply_changed(ac_psy);
+	chr_err(" %s %d: update input_current_limit = %d\n", __func__,__LINE__,val_psy_pd_cur.intval);
 	chr_err("[current_limit] %s %d: set IBUS current limit = %d\n", __func__,__LINE__,pdata->input_current_limit);
 	/*jeita has higher priority start*/
 
@@ -998,7 +1015,8 @@ static int mtk_switch_chr_cc(struct charger_manager *info)
 
 	swchgalg->total_charging_time = charging_time.tv_sec;
 
-	chr_err("pe40_ready:%d pps:%d hv:%d thermal:%d,%d tmp:%d,%d,%d\n",
+	chr_err("[%s] pe40_ready:%d pps:%d hv:%d thermal:%d,%d tmp:%d,%d,%d\n",
+		__func__,
 		info->enable_pe_4,
 		pe40_is_ready(),
 		info->enable_hv_charging,
@@ -1010,7 +1028,7 @@ static int mtk_switch_chr_cc(struct charger_manager *info)
 
 	if (info->enable_pe_5 && pe50_is_ready() && !info->leave_pe5) {
 		if (info->enable_hv_charging == true) {
-			chr_err("enter PE5.0\n");
+			chr_err("[%s] enter PE5.0\n",__func__);
 			swchgalg->state = CHR_PE50;
 			info->pe5.online = true;
 			if (mtk_pe20_get_is_enable(info)) {
@@ -1034,7 +1052,7 @@ static int mtk_switch_chr_cc(struct charger_manager *info)
 		if (info->enable_hv_charging == true &&
 			info->chg1_data.thermal_charging_current_limit == -1 &&
 			info->chg1_data.thermal_input_current_limit == -1) {
-			chr_err("enter PE4.0!\n");
+			chr_err("[%s] enter PE4.0!\n",__func__);
 			swchgalg->state = CHR_PE40;
 			if (mtk_pe20_get_is_enable(info)) {
 				mtk_pe20_set_is_enable(info, false);
@@ -1050,22 +1068,31 @@ static int mtk_switch_chr_cc(struct charger_manager *info)
 			return 1;
 		}
 	}
+	chr_err("[%s] %d is PD ready? %d ,pd_type = %d ,leave_pdc = %d ,enable_hv_charging = %d\n",
+		__func__,__LINE__,pdc_is_ready(),is_pd_type,info->leave_pdc,info->enable_hv_charging);
 
 	if (pdc_is_ready() &&
 		!info->leave_pdc) {
 		if (info->enable_hv_charging == true) {
-			chr_err("enter PDC!\n");
+			chr_err("[%s] enter PDC!\n",__func__);
 			swchgalg->state = CHR_PDC;
+			chr_err("[%s] %d state = %d \n",__func__,__LINE__,swchgalg->state);
 			if (mtk_pe20_get_is_enable(info)) {
 				mtk_pe20_set_is_enable(info, false);
-				if (mtk_pe20_get_is_connect(info))
+				if (mtk_pe20_get_is_connect(info)){
 					mtk_pe20_reset_ta_vchr(info);
+					chr_err("[%s] %d \n",__func__,__LINE__);
+				}
+				chr_err("[%s] %d \n",__func__,__LINE__);
 			}
 
 			if (mtk_pe_get_is_enable(info)) {
 				mtk_pe_set_is_enable(info, false);
-				if (mtk_pe_get_is_connect(info))
+				if (mtk_pe_get_is_connect(info)){
 					mtk_pe_reset_ta_vchr(info);
+					chr_err("[%s] %d \n",__func__,__LINE__);
+				}
+				chr_err("[%s] %d \n",__func__,__LINE__);
 			}
 			return 1;
 		}
@@ -1077,7 +1104,7 @@ static int mtk_switch_chr_cc(struct charger_manager *info)
 	if (chg_done) {
 		swchgalg->state = CHR_BATFULL;
 		charger_dev_do_event(info->chg1_dev, EVENT_EOC, 0);
-		chr_err("battery full!\n");
+		chr_err("[%s] battery full!\n",__func__);
 	}
 
 	/* If it is not disabled by throttling,
@@ -1096,6 +1123,7 @@ static int mtk_switch_chr_cc(struct charger_manager *info)
 		mtk_pe_set_is_enable(info, true);
 		mtk_pe_set_to_check_chr_type(info, true);
 	}
+	chr_err("[%s] %d end \n",__func__,__LINE__);
 	return 0;
 }
 
@@ -1139,7 +1167,9 @@ static int mtk_switch_chr_full(struct charger_manager *info)
 	swchg_select_cv(info);
 	info->polling_interval = CHARGING_FULL_INTERVAL;
 	charger_dev_is_charging_done(info->chg1_dev, &chg_done);
-	if (!chg_done) {
+	chr_err("[%s]%d is charging finish = %d , info->chr_type = %d \n",__func__,__LINE__,chg_done,info->chr_type);
+	/*[SX3-4424] DUT still display charging icon after plug out charger*/
+	if (!chg_done && info->chr_type != CHARGER_UNKNOWN) {
 		swchgalg->state = CHR_CC;
 		charger_dev_do_event(info->chg1_dev, EVENT_RECHARGE, 0);
 		mtk_pe20_set_to_check_chr_type(info, true);

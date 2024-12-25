@@ -76,6 +76,10 @@
 /* ============================================================ */
 static int ui_mapping_increase_count=0;
 static int ui_mapping_decrease_count=0;
+static int pre_charge_capacity = 0;
+static int pre_discharge_capacity = 0;
+static int current_now_for_selfcheck;
+static int temp_for_selfcheck;
 /************ adc_cali *******************/
 #define ADC_CALI_DEVNAME "MT_pmic_adc_cali"
 #define TEST_ADC_CALI_PRINT _IO('k', 0)
@@ -94,6 +98,8 @@ static int ui_mapping_decrease_count=0;
 #define Set_CARTUNE_TO_KERNEL _IOW('k', 15, int)
 /* add for meta tool----------------------------------------- */
 #define original_temperature -123
+
+extern int real_capacity; /* real capacity, not ui soc*/
 
 static struct class *adc_cali_class;
 static int adc_cali_major;
@@ -570,15 +576,15 @@ static void write_CHG_STATUS_to_battlog(int chg_status){
 /**** [SX3-2669] write battery and charging info to battlog: END   ****/
 
 /*[SX3-3952] repare skip capacity:START*/
-static int repare_skip_cap(int ui_capacity){
+int repare_skip_cap(int ui_capacity){
 	int is_bat_charging = 0;
 	int bat_current = 0;
-
+	
 	/* BAT_DISCHARGING = 0 */
 	/* BAT_CHARGING = 1 */
 	is_bat_charging = gauge_get_current(&bat_current);
-	if((ui_capacity==21||ui_capacity==26||ui_capacity==31||ui_capacity==36||ui_capacity==41||
-	ui_capacity==48||ui_capacity==55||ui_capacity==62||ui_capacity==69||ui_capacity==77)&&is_bat_charging ==1 ){
+	if((ui_capacity==24||ui_capacity==35||ui_capacity==43||ui_capacity==48||ui_capacity==53||
+	ui_capacity==58||ui_capacity==63||ui_capacity==68||ui_capacity==72||ui_capacity==77)&&is_bat_charging ==1 ){
 		ui_mapping_increase_count+=1;
 		bm_err("[repare_skip_cap] sharp_ui = %d ,ui_mapping_increase_count = %d",ui_capacity,ui_mapping_increase_count);
 		if(ui_mapping_increase_count>=11){
@@ -589,8 +595,8 @@ static int repare_skip_cap(int ui_capacity){
 		ui_mapping_increase_count = 0;
 	}
 
-	if((ui_capacity==23||ui_capacity==28||ui_capacity==33||ui_capacity==38||ui_capacity==43||
-	ui_capacity==50||ui_capacity==57||ui_capacity==64||ui_capacity==71||ui_capacity==79)&&is_bat_charging ==0 ){
+	if((ui_capacity==26||ui_capacity==37||ui_capacity==45||ui_capacity==50||ui_capacity==55||
+	ui_capacity==60||ui_capacity==65||ui_capacity==70||ui_capacity==74||ui_capacity==79)&&is_bat_charging ==0 ){
 		ui_mapping_decrease_count+=1;
 		bm_err("[repare_skip_cap] sharp_ui = %d ,ui_mapping_decrease_count = %d",ui_capacity,ui_mapping_decrease_count);
 		if(ui_mapping_decrease_count>=11){
@@ -602,7 +608,69 @@ static int repare_skip_cap(int ui_capacity){
 	}
 	return ui_capacity;
 }
+
 /*[SX3-3952] repare skip capacity:END*/
+
+int repare_skip_cap_sx4(int ui_capacity){
+
+	int modify_number_count = 10;
+	int add_number[] = {22,28,34,40,46,52,58,64,70,76};
+	int reduce_number[] ={24,30,36,42,48,54,60,66,72,78};
+	int add_flag = 0;
+	int reduce_flag = 0;
+	int i = 0;
+	int modify_ui_capacity;
+	int is_bat_charging = 0;
+	int bat_current = 0;
+	
+	/* BAT_DISCHARGING = 0 */
+	/* BAT_CHARGING = 1 */
+	is_bat_charging = gauge_get_current(&bat_current);
+
+	for(i=0;i<modify_number_count;i++){
+		if(ui_capacity == add_number[i] &&is_bat_charging ==1 ){
+			add_flag = 1;
+			bm_err("[repare_skip_cap_sx4] ui_capacity meet add_flag = %d \n",ui_capacity);
+		}	
+		if(ui_capacity == reduce_number[i] &&is_bat_charging ==0 ){
+			reduce_flag = 1;
+			bm_err("[repare_skip_cap_sx4] ui_capacity meet reduce_flag = %d \n",ui_capacity);
+		}
+	}
+	modify_ui_capacity = ui_capacity; 
+	if(add_flag&&is_bat_charging ==1&&pre_charge_capacity==ui_capacity){
+		ui_mapping_increase_count+=1;
+		bm_err("[repare_skip_cap_sx4] sharp_ui = %d ,ui_mapping_increase_count = %d \n",ui_capacity,ui_mapping_increase_count);
+		if(ui_mapping_increase_count>=10){
+			modify_ui_capacity+=1;
+			bm_err("[repare_skip_cap_sx4] modify_ui = %d \n",modify_ui_capacity);
+		}
+	}else{
+		pre_charge_capacity = ui_capacity;
+		ui_mapping_increase_count = 0;
+		bm_err(" [repare_skip_cap_sx4] pre_charge_capacity = %d \n",pre_charge_capacity);
+	}
+
+	bm_err(" pre_discharge_capacity = %d ,ui_capacity= %d \n",pre_discharge_capacity,ui_capacity);
+	if(reduce_flag&&is_bat_charging ==0 && pre_discharge_capacity==ui_capacity ){
+		ui_mapping_decrease_count+=1;
+		bm_err("[repare_skip_cap_sx4] sharp_ui = %d ,ui_mapping_decrease_count = %d \n",ui_capacity,ui_mapping_decrease_count);
+		if(ui_mapping_decrease_count>=10){
+			modify_ui_capacity-=1;
+			bm_err("[repare_skip_cap_sx4] modify_ui = %d \n",modify_ui_capacity);
+		}
+	}else{
+		pre_discharge_capacity = ui_capacity;
+		ui_mapping_decrease_count = 0;
+		bm_err(" [repare_skip_cap_sx4] pre_discharge_capacity = %d \n",pre_discharge_capacity);
+		
+	}
+	add_flag = 0;
+	reduce_flag = 0;
+	return modify_ui_capacity;
+}
+
+
 
 /* [SX3-3649] sharp requirement when current below 200mA show 100% start*/
 static int Uisoc_100persent_settiing(int ui_capacity)
@@ -616,12 +684,21 @@ static int Uisoc_100persent_settiing(int ui_capacity)
 	b_ischarging = gauge_get_current(&fgcurrent);
 	if (b_ischarging == false)
 		fgcurrent = 0 - fgcurrent;
+
+	if(cus_cap_variant.discharge_capacity ==100){
+		cus_cap_variant.capacity_full = true ;
+		bm_err("[terminal_current_setting]%s %d discharge_capacity = %d %%  -->full",__func__,__LINE__,cus_cap_variant.discharge_capacity);
+	}else if(cus_cap_variant.discharge_capacity !=100 || ui_capacity !=100){
+		cus_cap_variant.capacity_full = false ;
+		bm_err("[terminal_current_setting]%s %d discharge_capacity = %d %% -->not full ",__func__,__LINE__,cus_cap_variant.discharge_capacity);
+	}
+
 	/*adjust fgcurrent > 225mA to avoid when 100% current too high*/
-	if(ui_capacity==100 && fgcurrent >= 2250){
+	if(ui_capacity==100 && fgcurrent >= 2250 && cus_cap_variant.capacity_full == false){
 		ui_capacity = 99;
 		cus_cap_variant.too_fast_to_100_persent_state  = true;
 		bm_err("[terminal_current_setting]%s %d capacity = %d %% ,current = %d mA ,too_fast_to_100_persent_state =%d ",__func__,__LINE__,ui_capacity,fgcurrent/10,cus_cap_variant.too_fast_to_100_persent_state);
-	}else if(ui_capacity==100 && fgcurrent < 2250 && fgcurrent > 2030){
+	}else if(ui_capacity==100 && fgcurrent < 2250 && fgcurrent > 2030 && cus_cap_variant.capacity_full == false){
 		bm_err("[terminal_current_setting]%s %d capacity = %d %% ,current = %d mA ,too_fast_to_100_persent_state =%d ",__func__,__LINE__,ui_capacity,fgcurrent/10,cus_cap_variant.too_fast_to_100_persent_state);
 		if(cus_cap_variant.too_fast_to_100_persent_state == true && fgcurrent > 2050){
 			cus_cap_variant.too_fast_to_100_persent_state  = true;
@@ -703,11 +780,10 @@ static int Uisoc_100persent_settiing(int ui_capacity)
 			cus_cap_variant.pre_capacity = ui_capacity ;
 			g_ts_last_ui_setting_discharging = ts_now_discharging;
 			bm_err("[terminal_current_setting]%s %d discharge modify capacity = %d %% ",__func__,__LINE__,ui_capacity);
-			return ui_capacity;
 		/*other time show last time capacity*/
 		}else if(cus_cap_variant.pre_capacity > ui_capacity && cus_cap_variant.modified_cap == true){
 			bm_err("[terminal_current_setting]%s %d cus_cap_variant.pre_capacity =%d ,discharge capacity = %d %% ",__func__,__LINE__,cus_cap_variant.pre_capacity,ui_capacity);
-			return cus_cap_variant.pre_capacity ;
+			ui_capacity = cus_cap_variant.pre_capacity ;
 		}
 		/*when modified capacity reach original capacity, leave this loop*/
 		if(cus_cap_variant.pre_capacity == ui_capacity){
@@ -719,6 +795,10 @@ static int Uisoc_100persent_settiing(int ui_capacity)
 		cus_cap_variant.discharge_count =0;
 		cus_cap_variant.modified_cap = false;
 		bm_err("[terminal_current_setting]%s %d do nothing : capacity = %d %%  leave loop",__func__,__LINE__,ui_capacity);
+	}
+	if(b_ischarging == false){
+		cus_cap_variant.discharge_capacity = ui_capacity;
+		bm_err("[terminal_current_setting]%s %d recoed discharge capacity = %d %% ",__func__,__LINE__,cus_cap_variant.discharge_capacity);
 	}
 	cus_cap_variant.pre_capacity=ui_capacity;
 	
@@ -774,7 +854,12 @@ static int battery_get_property(struct power_supply *psy,
 			val->intval = gm.fixed_uisoc;
 		else
 			val->intval = data->BAT_CAPACITY;
-		val->intval = repare_skip_cap(val->intval);
+
+		#if defined(CONFIG_FIH_SX4)
+			val->intval = repare_skip_cap_sx4(val->intval);
+		#else 
+			val->intval = repare_skip_cap(val->intval);
+		#endif 			
 		val->intval = Uisoc_100persent_settiing(val->intval);
 		write_FGIC_LEVEL_to_battlog(val->intval);
 		break;
@@ -784,6 +869,7 @@ static int battery_get_property(struct power_supply *psy,
 			fgcurrent = 0 - fgcurrent;
 
 		val->intval = fgcurrent * 100;
+		current_now_for_selfcheck = fgcurrent * 100;
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_AVG:
 		val->intval = battery_get_bat_avg_current() * 100;
@@ -803,6 +889,7 @@ static int battery_get_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_TEMP:
 		val->intval = gm.tbat_precise;
+		temp_for_selfcheck = gm.tbat_precise;
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY_LEVEL:
 		val->intval = check_cap_level(data->BAT_CAPACITY);
@@ -4292,6 +4379,38 @@ return size;
 }
 static DEVICE_ATTR(Temperature_Setting, 0664, NULL, store_Temperature_Setting);
 
+static ssize_t show_Real_Capacity(
+struct device *dev, struct device_attribute *attr, char *buf)
+{
+
+	bm_err("Real Capacity : %d\n", real_capacity);
+	return sprintf(buf, "%u\n", real_capacity);
+}
+static DEVICE_ATTR(Real_Capacity, 0664, show_Real_Capacity, NULL);
+
+/* /////////////////////////////////////*/
+/* // Create File For SelfCheck APP     */
+/* /////////////////////////////////////*/
+
+static ssize_t show_Current_Now(
+struct device *dev, struct device_attribute *attr, char *buf)
+{
+	bm_err("[selfcheck] Current_Now : %d\n", current_now_for_selfcheck);
+	return sprintf(buf, "%d\n", current_now_for_selfcheck);
+}
+
+static DEVICE_ATTR(Current_Now, 0664, show_Current_Now, NULL);
+
+static ssize_t show_Battery_Temp(
+struct device *dev, struct device_attribute *attr, char *buf)
+{
+
+	bm_err("[selfcheck] Battery_Temp : %d\n", temp_for_selfcheck);
+	return sprintf(buf, "%u\n", temp_for_selfcheck);
+}
+
+static DEVICE_ATTR(Battery_Temp, 0664, show_Battery_Temp, NULL);
+
 
 /* /////////////////////////////////////////// */
 /* // Create File For EM : Power_Off_Voltage */
@@ -4329,8 +4448,12 @@ static int battery_callback(
 		{
 /* CHARGING FULL */
 			notify_fg_chr_full();
-			battery_main.BAT_STATUS = POWER_SUPPLY_STATUS_FULL;
-			battery_update(&battery_main);
+			bm_err("%s: soc = %d",__func__,battery_main.BAT_CAPACITY);
+			if(battery_main.BAT_CAPACITY == 100){
+				battery_main.BAT_STATUS = POWER_SUPPLY_STATUS_FULL;
+				battery_update(&battery_main);
+				bm_err("%s:battery update full , soc = %d",__func__,battery_main.BAT_CAPACITY);
+			} 
 		}
 		break;
 	case CHARGER_NOTIFY_START_CHARGING:
@@ -4344,6 +4467,7 @@ static int battery_callback(
 
 			battery_main.BAT_STATUS = POWER_SUPPLY_STATUS_CHARGING;
 			battery_update(&battery_main);
+			bm_err("%s:battery update start charging",__func__);
 		}
 		break;
 	case CHARGER_NOTIFY_STOP_CHARGING:
@@ -4356,6 +4480,7 @@ static int battery_callback(
 			battery_main.BAT_STATUS =
 			POWER_SUPPLY_STATUS_DISCHARGING;
 			battery_update(&battery_main);
+			bm_err("%s:battery update stop charging",__func__);
 		}
 		break;
 	case CHARGER_NOTIFY_ERROR:
@@ -4363,6 +4488,7 @@ static int battery_callback(
 /* charging enter error state */
 		battery_main.BAT_STATUS = POWER_SUPPLY_STATUS_NOT_CHARGING;
 		battery_update(&battery_main);
+		bm_err("%s:battery update not charging",__func__);
 		}
 		break;
 	case CHARGER_NOTIFY_NORMAL:
@@ -4370,7 +4496,7 @@ static int battery_callback(
 /* charging leave error state */
 		battery_main.BAT_STATUS = POWER_SUPPLY_STATUS_CHARGING;
 		battery_update(&battery_main);
-
+		bm_err("%s:battery update charging",__func__);
 		}
 		break;
 
@@ -4834,6 +4960,12 @@ static int __init battery_probe(struct platform_device *dev)
 		&dev_attr_reset_aging_factor);
 	ret_device_file = device_create_file(&(dev->dev),
 		&dev_attr_Temperature_Setting);
+	ret_device_file = device_create_file(&(dev->dev),
+		&dev_attr_Current_Now);
+	ret_device_file = device_create_file(&(dev->dev),
+		&dev_attr_Battery_Temp);
+	ret_device_file = device_create_file(&(dev->dev),
+		&dev_attr_Real_Capacity);
 
 	if (of_scan_flat_dt(fb_early_init_dt_get_chosen, NULL) > 0)
 		fg_swocv_v =

@@ -37,7 +37,7 @@
 #define FTS_INI_FILE_PATH                       "/data/vendor/misc/touch/"
 #define FTS_CSV_FILE_NAME                       "testdata.csv"
 #define FTS_TXT_FILE_NAME                       "testresult.txt"
-#define FTS_CONF_NAME                           "SX3_FT5446U_Conf_MultipleTest_V04_20230427.ini"
+#define FTS_CONF_NAME                           "SX3_FT5446U_Conf_MultipleTest_V04_20230608.ini"
 #define false 0
 #define true  1
 #define TEST_ICSERIES_LEN                       (8)

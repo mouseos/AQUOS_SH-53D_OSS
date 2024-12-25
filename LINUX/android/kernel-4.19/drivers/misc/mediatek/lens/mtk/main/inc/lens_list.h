@@ -25,6 +25,20 @@ extern int AK7371AF_PowerDown(struct i2c_client *pstAF_I2Cclient,
 				int *pAF_Opened);
 extern int AK7371AF_GetFileName(unsigned char *pFileName);
 
+#define AW8601XAF_SetI2Cclient AW8601XAF_SetI2Cclient_Main
+#define AW8601XAF_Ioctl AW8601XAF_Ioctl_Main
+#define AW8601XAF_Release AW8601XAF_Release_Main
+#define AW8601XAF_PowerDown AW8601XAF_PowerDown_Main
+#define AW8601XAF_GetFileName AW8601XAF_GetFileName_Main
+extern int AW8601XAF_SetI2Cclient(struct i2c_client *pstAF_I2Cclient,
+				 spinlock_t *pAF_SpinLock, int *pAF_Opened);
+extern long AW8601XAF_Ioctl(struct file *a_pstFile, unsigned int a_u4Command,
+			   unsigned long a_u4Param);
+extern int AW8601XAF_Release(struct inode *a_pstInode, struct file *a_pstFile);
+extern int AW8601XAF_PowerDown(struct i2c_client *pstAF_I2Cclient,
+				int *pAF_Opened);
+extern int AW8601XAF_GetFileName(uint8_t *pFileName);
+
 #define BU6424AF_SetI2Cclient BU6424AF_SetI2Cclient_Main
 #define BU6424AF_Ioctl BU6424AF_Ioctl_Main
 #define BU6424AF_Release BU6424AF_Release_Main

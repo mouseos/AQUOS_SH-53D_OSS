@@ -135,7 +135,7 @@ static int fl_enable(struct flashlight_dev *fdev, int enable)
 #ifdef CONFIG_MTK_FLASHLIGHT_PT
 	if (pt_is_low(pt_low_vol, pt_low_bat, pt_over_cur) == 2)
 		if (enable) {
-			enable = 1;
+			enable = 0;
 			/// default:0 FIH product needs to make flashlight always working even low power mode.
 			//So make it return none-low-power here.
 			pr_info("Failed to enable since pt(%d,%d,%d), pt strict(%d)\n",

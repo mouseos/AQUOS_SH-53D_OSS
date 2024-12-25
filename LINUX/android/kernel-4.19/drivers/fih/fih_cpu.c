@@ -52,8 +52,15 @@ static int __init fih_proc_init(void)
 		snprintf(fih_proc_data, sizeof(fih_proc_data), "%s", p);
 	} else {
 		pr_err("%s: fail to get machine name\n", __func__);
-		snprintf(fih_proc_data, sizeof(fih_proc_data), "MT6853V/ZA");
+		snprintf(fih_proc_data, sizeof(fih_proc_data), "MT6833V_NZA");
 	}
+
+	#if (1)
+	if (0 == strcmp(fih_proc_data, "MT6833")) {
+		memset(fih_proc_data, 0, sizeof(fih_proc_data));
+		snprintf(fih_proc_data, sizeof(fih_proc_data), "MT6833V_NZA");
+	}
+	#endif
 
 	proc_mkdir(FIH_PROC_DIR, NULL);
 	if (proc_create(FIH_PROC_PATH, 0, NULL, &fih_proc_fops) == NULL) {

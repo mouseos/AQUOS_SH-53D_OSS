@@ -71,6 +71,7 @@
 //#define BATTERY_DETERIORATION_FILE_PATH		"/durable/shpwr/shbatt"
 
 static struct charger_manager *pinfo;
+static struct charger_manager *finfo;
 static struct list_head consumer_head = LIST_HEAD_INIT(consumer_head);
 static DEFINE_MUTEX(consumer_mutex);
 extern int read_mt6360_ibus_node_uA;
@@ -78,15 +79,20 @@ extern bool mt6360_power_path_report_en;
 extern bool force_power_path_en;
 extern bool echo_power_path;
 extern int full_capacity_now;
-static int direct_charging_set_capacity = 100;
+//static int direct_charging_set_capacity = 100;
 static int battery_deterioration = 0;
 static int battery_deterioration_set_scale = 200;
+static int battery_deterioration_init = 0;
 static int bat_vol_decrease = 0;
 
 extern int real_capacity; /* real capacity, not ui soc*/
 extern int force_get_tbat(bool update);
 extern int gauge_get_coulomb(void);
 struct damage_info_data *damage_info;
+struct damage_info_data_sx4 *damage_info_sx4;
+int is_pd_type =0;
+extern int ac_charger_online;
+extern int sdp_online;
 
 struct tag_bootmode {
 	u32 size;
@@ -109,6 +115,7 @@ static int cc_safety_level_val = 0;
 static int cc_safety_level_test_enable = 0;
 static int cc_safety_level_test_val = -40;
 static struct timespec g_ts_otp_enable;
+static struct timespec bat_damage_init;
 /**** [SX3-696] global variants: END   ****/
 
 void write_battlog(int sharp_battlog_event_id)
@@ -256,11 +263,29 @@ void _wake_up_charger(struct charger_manager *info)
 		return;
 
 	spin_lock_irqsave(&info->slock, flags);
-	if (!info->charger_wakelock->active)
+	if (!info->charger_wakelock->active){
 		__pm_stay_awake(info->charger_wakelock);
+		chr_err("[%s] charger_wakelock lock\n", __func__);
+	}
 	spin_unlock_irqrestore(&info->slock, flags);
 	info->charger_thread_timeout = true;
 	wake_up_interruptible(&info->wait_que);
+}
+/*SX3U-216 Wakelock while charger is attached*/
+void wakelock_en(bool en)
+{
+	chr_err("[%s] en = %d \n", __func__, en);
+	if(en == 1){
+		if (!finfo->charger_wakelock->active){
+			__pm_stay_awake(finfo->charger_wakelock);
+			chr_err("[%s] finfo->charger_wakelock lock\n", __func__);
+		}
+	}else{
+		if (finfo->charger_wakelock->active){
+			__pm_relax(finfo->charger_wakelock);
+			chr_err("[%s] finfo->charger_wakelock unlock\n", __func__);
+		}   
+	}
 }
 
 /* charger_manager ops  */
@@ -1872,14 +1897,16 @@ static void charger_check_status(struct charger_manager *info)
 			}
 		}
 	}
-
-	if ( direct_charging_set_capacity >= battery_get_uisoc()){
+	/*
+	if ( direct_charging_set_capacity > battery_get_uisoc()){
 			info->direct_charging_en = true ;
-			pr_err("[%s]: capacity > battery_get_uisoc()");
+			pr_err("[%s]: direct_charging_set_capacity %d > UISOC %d \n", __func__,direct_charging_set_capacity,battery_get_uisoc());
 		}else{
 			info->direct_charging_en = false ;
 			pr_err("[%s]: uisoc:%d reach capacity %d , stop charging\n", __func__,battery_get_uisoc(), direct_charging_set_capacity);
 	}
+	*/
+	info->direct_charging_en = pinfo->direct_charging_en ;
 
 	mtk_chg_get_tchg(info);
 
@@ -1913,7 +1940,10 @@ stop_charging:
 		charging, info->cmd_discharging, info->safety_timeout,
 		info->vbusov_stat, info->sc.disable_charger,
 		info->can_charging, charging);
-	chr_err("power_path:%d ,direct_charging:%d\n",info->power_path_en,info->direct_charging_en);
+	chr_err("cmd_discharging:%d ,safety_timeout:%d ,vbusov_stat:%d ,sc.disable_charger:%d ,power_path:%d ,direct_charging:%d\n",
+		info->cmd_discharging,info->safety_timeout,
+		info->vbusov_stat,info->sc.disable_charger,
+		info->power_path_en,info->direct_charging_en);
 
 	if (charging != info->can_charging)
 		_charger_manager_enable_charging(info->chg1_consumer,
@@ -1981,10 +2011,7 @@ static void battery_damage_decrease(struct charger_manager *info)
 {
 	struct timespec time_now;
 	int temp = force_get_tbat(true); /*battery temperature*/
-	//int max_time = 900000;/*900000s = 250hr*/
-	//int max_capacity = 746000; /* 200*3730(mAh) */
-	//int buffer[2]= {0,0};
-	//loff_t pos =0;
+
 	int set_capacity = 9000;/*90 percentage of capacity*/
 	int set_temp = 40 ;/*40 deg*/
 
@@ -2025,28 +2052,148 @@ static void battery_damage_decrease(struct charger_manager *info)
 		if(damage_info->total_coulomb<0)
 			damage_info->total_coulomb = 0;
 
-		/*save time and coulomb to file*/
-/*
-
-		file_read(BATTERY_DAMAGE_FILE_PATH,pos,buffer, sizeof(buffer));
-		chr_err("[%s] last time -> total_time = %d sec , total_coulomb = %d mAh \n", __func__,buffer[0],buffer[1]);
-		buffer[0] += damage_info->total_time;
-		buffer[1] += damage_info->total_coulomb;
-		
-		file_write(BATTERY_DAMAGE_FILE_PATH,pos,buffer, sizeof(buffer));
-		chr_err("[%s] newest    -> total_time = %d sec , total_coulomb = %d mAh \n", __func__,buffer[0],buffer[1]);
-*/
 		
 	}
 
 	chr_err("[%s] bat_vol_decrease = %d \n", __func__,bat_vol_decrease);
+
+	#if defined(CONFIG_FIH_SX4)
+	chr_err("[%s]sx4 Battery aging \n", __func__);
+	#else 
 	if(bat_vol_decrease == 1){
 		info->data.battery_cv = 4300000; 
-		chr_err("[%s] battery has already damaged ,bat_vol_decrease = %d ,battery max voltage set to = %d mV\n", __func__,bat_vol_decrease,info->data.battery_cv/1000);
+		chr_err("[%s] Battery aging ,bat_vol_decrease = %d ,battery max voltage set to = %d mV\n", __func__,bat_vol_decrease,info->data.battery_cv/1000);
 	}
+	#endif 
 
 	
 }
+/*SX4-194 Accumulate charging cycle and re-configure charging parameters --new condition*/
+int Impact_Ratio_Of_Vbat()
+{
+	int vbat ,ratio;
+	vbat = battery_get_bat_voltage();
+
+	if(4250 < vbat && vbat <= 4350){
+		ratio = 10;
+	}else if(4150 < vbat && vbat <= 4250){
+		ratio = 5;
+	}else if(4000 < vbat && vbat <= 4150){
+		ratio = 1;
+	}else{
+		ratio = 3; //temp
+	}
+	chr_err("[battery_damage_decrease_SX4] vbat = %d , 10*ratio = %d \n",vbat,ratio);
+	return ratio;
+}
+
+int Impact_Ratio_Of_bat_Temp()
+{
+	int BattTemp ,ratio;
+	BattTemp = force_get_tbat(true); 
+
+	if(30<BattTemp && BattTemp<=35){
+		ratio= 35;
+	}else if(35<BattTemp && BattTemp<=40){
+		ratio = 70;
+	}else if(40<BattTemp && BattTemp<=45){
+		ratio = 100;
+	}else if(45<BattTemp && BattTemp<=50){
+		ratio = 140;
+	}else if(50<BattTemp && BattTemp<=55){
+		ratio = 350;
+	}else if(55<BattTemp){
+		ratio = 700;
+	}else{
+		ratio = 3;//temp
+	}
+	chr_err("[battery_damage_decrease_SX4] BattTemp = %d , 100*ratio = %d \n",BattTemp,ratio);
+	return ratio;
+}
+
+void battery_damage_decrease_SX4(struct charger_manager *info)
+{
+	struct timespec time_now;
+	long int this_satge_time;
+	damage_info_sx4 = &info->damage_info_sx4;
+
+	get_monotonic_boottime(&time_now); //get time for now
+
+	damage_info_sx4 -> bat_vol_ratio = Impact_Ratio_Of_Vbat();
+	damage_info_sx4 -> bat_temp_ratio = Impact_Ratio_Of_bat_Temp();
+
+	if(damage_info_sx4->total_time < 0){
+		chr_err("[%s] damage_info_sx4->total_time  = %ld  < 0 ,set 0 \n", __func__,damage_info_sx4->total_time );
+		damage_info_sx4->total_time = 0;
+	}
+	chr_err("[%s] damage_info_sx4->pre_bat_temp_ratio = %d ,damage_info_sx4 -> bat_temp_ratio = %d \n", __func__,damage_info_sx4->pre_bat_temp_ratio ,damage_info_sx4 -> bat_temp_ratio);
+	chr_err("[%s] damage_info_sx4->pre_bat_vol_ratio = %d ,damage_info_sx4 -> bat_vol_ratio  = %d \n", __func__,damage_info_sx4->pre_bat_vol_ratio,damage_info_sx4 -> bat_vol_ratio  );
+//if both change, read pre temperature & pre voltage
+	if(damage_info_sx4-> pre_bat_temp_ratio != damage_info_sx4->bat_temp_ratio &&
+		damage_info_sx4-> pre_bat_vol_ratio != damage_info_sx4->bat_vol_ratio)
+		{
+			chr_err("[%s] temperature & voltage change: read pre temperature, pre voltage ============ \n", __func__);
+			damage_info_sx4->end_time = time_now.tv_sec;
+			chr_err("[%s] damage_info_sx4->end_time = %ld\n", __func__,damage_info_sx4->end_time );
+			this_satge_time = (damage_info_sx4->end_time - damage_info_sx4->start_time)*(damage_info_sx4 -> pre_bat_temp_ratio)*(damage_info_sx4 -> pre_bat_vol_ratio);
+			damage_info_sx4->total_time += this_satge_time;
+			chr_err("[%s] This stage 1000 * total_time %ld(s) * bat_temp_ratio %d * bat_vol_ratio %d = %ld , All stage not save time = %ld \n", __func__,
+				damage_info_sx4->end_time - damage_info_sx4->start_time,
+				damage_info_sx4 -> pre_bat_temp_ratio,
+				damage_info_sx4 -> pre_bat_vol_ratio,
+				this_satge_time,
+				damage_info_sx4->total_time);
+			
+			damage_info_sx4->start_time = damage_info_sx4->end_time;
+//if only temperature change, read pre temperature &voltage now
+	}else if(damage_info_sx4-> pre_bat_temp_ratio != damage_info_sx4->bat_temp_ratio)
+		{
+			chr_err("[%s] temperature change: read pre temperature, this  voltage ============ \n", __func__);
+			damage_info_sx4->end_time = time_now.tv_sec;
+			chr_err("[%s] damage_info_sx4->end_time = %ld\n", __func__,damage_info_sx4->end_time );
+			this_satge_time = (damage_info_sx4->end_time - damage_info_sx4->start_time)*(damage_info_sx4 -> pre_bat_temp_ratio)*(damage_info_sx4 -> bat_vol_ratio);
+			damage_info_sx4->total_time += this_satge_time;
+			chr_err("[%s] This stage 1000 * total_time %ld(s) * bat_temp_ratio %d * bat_vol_ratio %d = %ld , All stage not save time = %ld \n", __func__,
+				damage_info_sx4->end_time - damage_info_sx4->start_time,
+				damage_info_sx4 -> pre_bat_temp_ratio,
+				damage_info_sx4 -> bat_vol_ratio,
+				this_satge_time,
+				damage_info_sx4->total_time);
+			
+			damage_info_sx4->start_time = damage_info_sx4->end_time;
+//if only voltage changem read pre voltage & temperature now 
+	}else if(damage_info_sx4-> pre_bat_vol_ratio != damage_info_sx4->bat_vol_ratio)
+		{
+			chr_err("[%s] voltage change: read pre voltage, this temperature ============ \n", __func__);
+			damage_info_sx4->end_time = time_now.tv_sec;
+			chr_err("[%s] damage_info_sx4->end_time = %ld\n", __func__,damage_info_sx4->end_time );
+			this_satge_time = (damage_info_sx4->end_time - damage_info_sx4->start_time)*(damage_info_sx4 -> bat_temp_ratio)*(damage_info_sx4 -> pre_bat_vol_ratio);
+			damage_info_sx4->total_time += this_satge_time;
+			chr_err("[%s] This stage 1000 * total_time %ld(s) * bat_temp_ratio %d * bat_vol_ratio %d = %ld , All stage not save time = %ld \n", __func__,
+				damage_info_sx4->end_time - damage_info_sx4->start_time,
+				damage_info_sx4 -> bat_temp_ratio,
+				damage_info_sx4 -> pre_bat_vol_ratio,
+				this_satge_time,
+				damage_info_sx4->total_time);
+			
+			damage_info_sx4->start_time = damage_info_sx4->end_time;
+
+		}
+
+	damage_info_sx4-> pre_bat_temp_ratio = damage_info_sx4->bat_temp_ratio;
+	damage_info_sx4-> pre_bat_vol_ratio = damage_info_sx4->bat_vol_ratio;
+
+
+	chr_err("[%s] bat_vol_decrease = %d \n", __func__,bat_vol_decrease);
+	if(bat_vol_decrease == 1){
+		info->data.battery_cv = 4200000; 
+		chr_err("[%s] Battery aging ,bat_vol_decrease = %d ,battery max voltage set to = %d mV\n", __func__,bat_vol_decrease,info->data.battery_cv/1000);
+	}else if(bat_vol_decrease == 2){
+		info->data.battery_cv = 4000000; 
+		chr_err("[%s] Battery aging ,bat_vol_decrease = %d ,battery max voltage set to = %d mV\n", __func__,bat_vol_decrease,info->data.battery_cv/1000);
+	}
+}
+
 
 
 static void battery_deterioration_calculate(void)
@@ -2054,32 +2201,31 @@ static void battery_deterioration_calculate(void)
 	int now_cap=full_capacity_now/10;
 	int full_cap = 3620;
 	int cal;
-	//int buffer[1]= {0};
-	//loff_t pos =0;
-
+	
 	cal = (now_cap*100)/full_cap;
-	if(battery_deterioration_set_scale != 200){
+
+	chr_err("[%s] now_cap = %d mAh, deterioration_persent = %d \n", __func__,now_cap,cal);
+	/* SX3-4443 To address the issue of the "now_cap" value being 0 within the first 60 seconds of powering on -- START*/
+	if(now_cap == 0){
+		battery_deterioration = battery_deterioration_init;
+		chr_err("[%s] wait mtk calculate ,use init battery_deterioration = %d \n", __func__,battery_deterioration);
+	}else{
+		if(battery_deterioration_set_scale != 200){
 		cal = battery_deterioration_set_scale;
 		chr_err("[%s] set scale = %d \n", __func__,cal);
+		}
+	/* SX3-4443 To address the issue of the "now_cap" value being 0 within the first 60 seconds of powering on -- END*/
+		if(cal >= 75){
+			battery_deterioration = 0;
+			chr_err("[%s] battery_deterioration = %d \n", __func__,battery_deterioration);
+		}else if(cal<75 && cal>=45){
+			battery_deterioration = 2;
+			chr_err("[%s] battery_deterioration = %d \n", __func__,battery_deterioration);
+		}else{
+			battery_deterioration = 1;
+			chr_err("[%s] battery_deterioration = %d \n", __func__,battery_deterioration);
+		}
 	}
-		
-	chr_err("[%s] now_cap = %d mAh, deterioration_persent = %d \n", __func__,now_cap,cal);
-	if(cal >= 75){
-		battery_deterioration = 0;
-		chr_err("[%s] battery_deterioration = %d \n", __func__,battery_deterioration);
-	}else if(cal<75 && cal>=45){
-		battery_deterioration = 2;
-		chr_err("[%s] battery_deterioration = %d \n", __func__,battery_deterioration);
-	}else{
-		battery_deterioration = 1;
-		chr_err("[%s] battery_deterioration = %d \n", __func__,battery_deterioration);
-	}
-	/*
-	file_read(BATTERY_DETERIORATION_FILE_PATH,pos,buffer, sizeof(buffer));
-	chr_err("[%s] battery_deterioration = %d \n", __func__,buffer[0]);
-	buffer[0] = battery_deterioration;
-	file_write(BATTERY_DETERIORATION_FILE_PATH,pos,buffer, sizeof(buffer));
-*/
 }
 
 static void kpoc_power_off_check(struct charger_manager *info)
@@ -2174,8 +2320,10 @@ static enum alarmtimer_restart
 	} else {
 		chr_err("%s: alarm timer timeout\n", __func__);
 		spin_lock_irqsave(&info->slock, flags);
-		if (!info->charger_wakelock->active)
+		if (!info->charger_wakelock->active){
 			__pm_stay_awake(info->charger_wakelock);
+			chr_err("[%s] charger_wakelock lock\n", __func__);
+		}
 		spin_unlock_irqrestore(&info->slock, flags);
 	}
 
@@ -2226,6 +2374,7 @@ static int charger_routine_thread(void *arg)
 	bool is_charger_on = false;
 	int bat_current = 0, chg_current = 0;
 	int ret;
+	finfo = info;
 
 	while (1) {
 		ret = wait_event_interruptible(info->wait_que,
@@ -2237,8 +2386,10 @@ static int charger_routine_thread(void *arg)
 
 		mutex_lock(&info->charger_lock);
 		spin_lock_irqsave(&info->slock, flags);
-		if (!info->charger_wakelock->active)
+		if (!info->charger_wakelock->active){
 			__pm_stay_awake(info->charger_wakelock);
+			chr_err("[%s] charger_wakelock lock\n", __func__);
+		}
 		spin_unlock_irqrestore(&info->slock, flags);
 
 		info->charger_thread_timeout = false;
@@ -2262,8 +2413,10 @@ static int charger_routine_thread(void *arg)
 		check_dynamic_mivr(info);
 		charger_check_status(info);
 		kpoc_power_off_check(info);
+		//SX4 new condition
+		battery_damage_decrease_SX4(info);
 		battery_damage_decrease(info);
-
+		
 		if (is_disable_charger() == false) {
 			if (is_charger_on == true) {
 				if (info->do_algorithm)
@@ -2275,7 +2428,10 @@ static int charger_routine_thread(void *arg)
 			chr_debug("disable charging\n");
 
 		spin_lock_irqsave(&info->slock, flags);
-		__pm_relax(info->charger_wakelock);
+		if(ac_charger_online == 0){ //ac charger wakelock do not release frome here
+			__pm_relax(info->charger_wakelock);
+			chr_err("[%s] charger_wakelock unlock \n", __func__);
+		}
 		spin_unlock_irqrestore(&info->slock, flags);
 		chr_debug("%s end , %d\n",
 			__func__, info->charger_thread_timeout);
@@ -2424,7 +2580,13 @@ static int mtk_charger_parse_dt(struct charger_manager *info,
 		info->data.ac_charger_current = AC_CHARGER_CURRENT;
 	}
 
-	info->data.pd_charger_current = 2611000;
+	if (of_property_read_u32(np, "pd_charger_current", &val) >= 0)
+		info->data.pd_charger_current = val;
+	else {
+		chr_err("use default PD_CHARGER_CURRENT:%d\n",
+			PD_CHARGER_CURRENT);
+		info->data.pd_charger_current= PD_CHARGER_CURRENT;
+	}
 
 	if (of_property_read_u32(np, "ac_charger_input_current", &val) >= 0)
 		info->data.ac_charger_input_current = val;
@@ -2536,6 +2698,30 @@ static int mtk_charger_parse_dt(struct charger_manager *info,
 		chr_err("use default JEITA_TEMP_BELOW_T0_CV:%d\n",
 			JEITA_TEMP_BELOW_T0_CV);
 		info->data.jeita_temp_below_t0_cv = JEITA_TEMP_BELOW_T0_CV;
+	}
+
+	if (of_property_read_u32(np, "jeita_temp_t3_to_t4_bat_cur", &val) >= 0)
+		info->data.jeita_temp_t3_to_t4_bat_cur = val;
+	else {
+		chr_err("use default JEITA_TEMP_T3_TO_T4_BAT_CUR:%d\n",
+			JEITA_TEMP_T3_TO_T4_BAT_CUR);
+		info->data.jeita_temp_t3_to_t4_bat_cur = JEITA_TEMP_T3_TO_T4_BAT_CUR;
+	}
+
+	if (of_property_read_u32(np, "jeita_temp_t2_to_t3_bat_cur", &val) >= 0)
+		info->data.jeita_temp_t2_to_t3_bat_cur = val;
+	else {
+		chr_err("use default JEITA_TEMP_T2_TO_T3_BAT_CUR:%d\n",
+			JEITA_TEMP_T2_TO_T3_BAT_CUR);
+		info->data.jeita_temp_t2_to_t3_bat_cur = JEITA_TEMP_T2_TO_T3_BAT_CUR;
+	}
+
+	if (of_property_read_u32(np, "jeita_temp_t1_to_t2_bat_cur", &val) >= 0)
+		info->data.jeita_temp_t1_to_t2_bat_cur = val;
+	else {
+		chr_err("use default JEITA_TEMP_T1_TO_T2_BAT_CUR:%d\n",
+			JEITA_TEMP_T1_TO_T2_BAT_CUR);
+		info->data.jeita_temp_t1_to_t2_bat_cur = JEITA_TEMP_T1_TO_T2_BAT_CUR;
 	}
 
 	if (of_property_read_u32(np, "temp_t4_thres", &val) >= 0)
@@ -3258,7 +3444,7 @@ static ssize_t show_ADC_Charger_Current(struct device *dev,
 
 static DEVICE_ATTR(ADC_Charger_Current, 0444, show_ADC_Charger_Current, NULL);
 
-
+/*
 ssize_t direct_charging_store(struct device *dev,
 		struct device_attribute *attr, const char *buf,  size_t size)
 {
@@ -3281,6 +3467,7 @@ ssize_t direct_charging_show(struct device *dev, struct device_attribute *attr, 
 }
 
 static DEVICE_ATTR(direct_charging, 0644, direct_charging_show, direct_charging_store);
+*/
 
 /**** [SX3-696][REQ][Charger][SW-PMIC-0043]Disable charger when USB TypeC connector becomes too hot ---- START ****/
 static ssize_t show_cc_safety_level(struct device *dev,
@@ -3480,8 +3667,12 @@ static DEVICE_ATTR(bat_vol_decrease, 0644, show_bat_vol_decrease, store_bat_vol_
 static ssize_t show_total_time(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
+	#if defined(CONFIG_FIH_SX4)
+		return sprintf(buf, "%ld\n", damage_info_sx4->total_time);
+	#else 
+		return sprintf(buf, "%d\n", damage_info->total_time);
+	#endif 
 	
-	return sprintf(buf, "%d\n", damage_info->total_time);
 }
 
 ssize_t store_total_time(struct device *dev,
@@ -3489,17 +3680,28 @@ ssize_t store_total_time(struct device *dev,
 {
 	int scale;
 
-	if (kstrtoint(buf, 10, &scale) == 0) 
-	{ 
-		damage_info->total_time = scale;
-		pr_err("[%s] total_time = %d  \n", __func__,damage_info->total_time); 
-		
-	}
+	#if defined(CONFIG_FIH_SX4)
+		if (kstrtoint(buf, 10, &scale) == 0) 
+		{ 
+			damage_info_sx4->total_time = scale;
+			pr_err("[%s] total_time_SX4 = %ld  \n", __func__,damage_info_sx4->total_time); 
+
+		}
+	#else 
+		if (kstrtoint(buf, 10, &scale) == 0) 
+		{ 
+			damage_info->total_time = scale;
+			pr_err("[%s] total_time = %d  \n", __func__,damage_info->total_time); 
+		}
+
+#endif 
 
 	return size;
 }
 
 static DEVICE_ATTR(total_time, 0644, show_total_time, store_total_time);
+
+
 
 static ssize_t show_total_coulomb(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -4100,11 +4302,11 @@ static int mtk_charger_setup_files(struct platform_device *pdev)
 	ret = device_create_file(&(pdev->dev), &dev_attr_ADC_Charger_Current);
 	if (ret)
 		goto _out;
-	
+	/*
 	ret = device_create_file(&(pdev->dev), &dev_attr_direct_charging);
 	if (ret)
 		goto _out;
-
+	*/
 	ret = device_create_file(&(pdev->dev), &dev_attr_battery_deterioration);
 	if (ret)
 		goto _out;
@@ -4200,6 +4402,9 @@ _out:
 void notify_adapter_event(enum adapter_type type, enum adapter_event evt,
 	void *val)
 {
+	struct power_supply *ac_psy = power_supply_get_by_name("ac");
+	union power_supply_propval val_psy;
+
 	chr_err("%s %d %d\n", __func__, type, evt);
 	switch (type) {
 	case MTK_PD_ADAPTER:
@@ -4208,6 +4413,7 @@ void notify_adapter_event(enum adapter_type type, enum adapter_event evt,
 			mutex_lock(&pinfo->charger_pd_lock);
 			chr_err("PD Notify Detach\n");
 			pinfo->pd_type = MTK_PD_CONNECT_NONE;
+			is_pd_type = pinfo->pd_type;
 			mutex_unlock(&pinfo->charger_pd_lock);
 			/* reset PE40 */
 			break;
@@ -4217,6 +4423,7 @@ void notify_adapter_event(enum adapter_type type, enum adapter_event evt,
 			chr_err("PD Notify HardReset\n");
 			pinfo->pd_type = MTK_PD_CONNECT_NONE;
 			pinfo->pd_reset = true;
+			is_pd_type = pinfo->pd_type;
 			mutex_unlock(&pinfo->charger_pd_lock);
 			_wake_up_charger(pinfo);
 			/* reset PE40 */
@@ -4226,6 +4433,7 @@ void notify_adapter_event(enum adapter_type type, enum adapter_event evt,
 			mutex_lock(&pinfo->charger_pd_lock);
 			chr_err("PD Notify fixe voltage ready\n");
 			pinfo->pd_type = MTK_PD_CONNECT_PE_READY_SNK;
+			is_pd_type = pinfo->pd_type;
 			mutex_unlock(&pinfo->charger_pd_lock);
 			/* PD is ready */
 			break;
@@ -4234,6 +4442,7 @@ void notify_adapter_event(enum adapter_type type, enum adapter_event evt,
 			mutex_lock(&pinfo->charger_pd_lock);
 			chr_err("PD Notify PD30 ready\r\n");
 			pinfo->pd_type = MTK_PD_CONNECT_PE_READY_SNK_PD30;
+			is_pd_type = pinfo->pd_type;
 			mutex_unlock(&pinfo->charger_pd_lock);
 			/* PD30 is ready */
 			break;
@@ -4242,6 +4451,7 @@ void notify_adapter_event(enum adapter_type type, enum adapter_event evt,
 			mutex_lock(&pinfo->charger_pd_lock);
 			chr_err("PD Notify APDO Ready\n");
 			pinfo->pd_type = MTK_PD_CONNECT_PE_READY_SNK_APDO;
+			is_pd_type = pinfo->pd_type;
 			mutex_unlock(&pinfo->charger_pd_lock);
 			/* PE40 is ready */
 			_wake_up_charger(pinfo);
@@ -4251,6 +4461,7 @@ void notify_adapter_event(enum adapter_type type, enum adapter_event evt,
 			mutex_lock(&pinfo->charger_pd_lock);
 			chr_err("PD Notify Type-C Ready\n");
 			pinfo->pd_type = MTK_PD_CONNECT_TYPEC_ONLY_SNK;
+			is_pd_type = pinfo->pd_type;
 			mutex_unlock(&pinfo->charger_pd_lock);
 			/* type C is ready */
 			_wake_up_charger(pinfo);
@@ -4278,6 +4489,10 @@ void notify_adapter_event(enum adapter_type type, enum adapter_event evt,
 			break;
 		};
 	}
+
+	power_supply_get_property(ac_psy, POWER_SUPPLY_PROP_VOLTAGE_MAX, &val_psy);
+	power_supply_changed(ac_psy);
+	chr_err("[%s] PD Notify to mt_ac_get_property\n", __func__);
 	mtk_pe50_notifier_call(pinfo, MTK_PE50_NOTISRC_TCP, evt, val);
 }
 
@@ -4903,6 +5118,21 @@ static ssize_t store_sc_test(
 static DEVICE_ATTR(sc_test, 0664,
 	show_sc_test, store_sc_test);
 
+/* /////////////////////////////////////*/
+/* // Create File For SelfCheck APP     */
+/* /////////////////////////////////////*/
+static ssize_t show_USB_Online(
+struct device *dev, struct device_attribute *attr, char *buf)
+{	
+	int usb_online_for_selfcheck;
+	chr_err("[selfcheck] ac_charger_online : %d , sdp_online : %d\n",ac_charger_online,sdp_online);
+	usb_online_for_selfcheck = (ac_charger_online || sdp_online);
+	chr_err("[selfcheck] usb_online : %d\n", usb_online_for_selfcheck);
+	return sprintf(buf, "%d\n", usb_online_for_selfcheck);
+}
+
+static DEVICE_ATTR(USB_Online, 0664, show_USB_Online, NULL);
+
 static int mtk_charger_probe(struct platform_device *pdev)
 {
 	struct charger_manager *info = NULL;
@@ -4979,6 +5209,9 @@ static int mtk_charger_probe(struct platform_device *pdev)
 
 	mtk_charger_init_timer(info);
 	info->is_pdc_run = false;
+
+	info->damage_info_sx4.pre_bat_temp_ratio = 0;
+	info->damage_info_sx4.pre_bat_vol_ratio = 0;
 	kthread_run(charger_routine_thread, info, "charger_thread");
 
 	if (info->chg1_dev != NULL && info->do_event != NULL) {
@@ -5060,6 +5293,8 @@ static int mtk_charger_probe(struct platform_device *pdev)
 		&dev_attr_sc_ibat_limit);
 	ret_device_file = device_create_file(&(pdev->dev),
 		&dev_attr_sc_test);
+	ret_device_file = device_create_file(&(pdev->dev),
+		&dev_attr_USB_Online);
 
 	info->chg1_consumer =
 		charger_manager_get_by_name(&pdev->dev, "charger_port1");
@@ -5076,6 +5311,10 @@ static int mtk_charger_probe(struct platform_device *pdev)
 	/**** [SX3-696] initite cc recovery timespec: START ****/
 	get_monotonic_boottime(&g_ts_otp_enable);
 	/**** [SX3-696] initite cc recovery timespec: END   ****/
+
+	/*[SX4-194] Accumulate charging cycle and re-configure charging parameters*/
+	get_monotonic_boottime(&bat_damage_init);
+	info->damage_info_sx4.start_time = bat_damage_init.tv_sec;
 
 	return 0;
 }

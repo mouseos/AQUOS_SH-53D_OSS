@@ -2087,6 +2087,7 @@ static void fts_fwupg_work(struct work_struct *work)
     fts_esdcheck_switch(upg->ts_data, ENABLE);
     fts_irq_enable();
     upg->ts_data->fw_loading = 0;
+    fts_read_reg(FTS_REG_FW_VER, &upg->ts_data->touch_fw_ver);
 }
 
 int fts_fwupg_init(struct fts_ts_data *ts_data)

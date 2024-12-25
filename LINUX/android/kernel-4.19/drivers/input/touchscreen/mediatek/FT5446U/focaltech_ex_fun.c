@@ -651,18 +651,15 @@ void touch_tpfwver_read_fts(char *fih_touch)
 {
     struct fts_ts_data *ts_data = fts_data;
     struct input_dev *input_dev = ts_data->input_dev;
-    u8 fwver = 0;
 
     mutex_lock(&input_dev->mutex);
 
-    fts_read_reg(FTS_REG_FW_VER, &fwver);
-
-    if ((fwver == 0xFF) || (fwver == 0x00)) {
-        fwver = 00;
+    if ((fts_data->touch_fw_ver == 0xFF) || (fts_data->touch_fw_ver == 0x00)) {
+        fts_data->touch_fw_ver = 00;
     }
 
     memset(fih_touch, 0, sizeof(*fih_touch));
-    snprintf(fih_touch, 128, "FocalTech-V%02X\n", fwver);
+    snprintf(fih_touch, 128, "FocalTech-V%02X\n", fts_data->touch_fw_ver);
     pr_err("%s",fih_touch);
 
     mutex_unlock(&input_dev->mutex);

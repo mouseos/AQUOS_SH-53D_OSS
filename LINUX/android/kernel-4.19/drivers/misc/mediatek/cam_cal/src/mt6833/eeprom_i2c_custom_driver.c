@@ -64,6 +64,8 @@ static int iReadRegI2C(struct i2c_client *client,
 	}
 	return 0;
 }
+
+#if defined(HI556_MIPI_RAW)
 //fihtdc, for HI556, start
 //#if defined(HI556_MIPI_RAW)
 //at sensor driver.c
@@ -83,6 +85,7 @@ static int iReadRegI2C(struct i2c_client *client,
 		 pr_err("HI556_read_region != 0");
 		 return 0;
  }
+#endif
 
 static int custom_read_region(struct i2c_client *client,
 			      u32 addr, u8 *data, u16 i2c_id, u32 size)

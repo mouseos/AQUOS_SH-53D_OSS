@@ -1,6 +1,6 @@
 /******************************************************************************
  * Copyright (C) 2015, The Linux Foundation. All rights reserved.
- * Copyright (C) 2019-2022 NXP
+ * Copyright (C) 2019-2023 NXP
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,6 +21,8 @@
 #define _COMMON_H_
 
 #include <linux/cdev.h>
+/* FIH NFC-To fix error: implicit declaration of function 'copy_to_user' */
+#include <linux/uaccess.h>
 
 #include "i2c_drv.h"
 
@@ -58,10 +60,18 @@
 
 #define MAX_NCI_PAYLOAD_LEN		(255)
 #define MAX_NCI_BUFFER_SIZE		(NCI_HDR_LEN + MAX_NCI_PAYLOAD_LEN)
-#define MAX_DL_PAYLOAD_LEN		(550)
+/* Compile time option to select maximum writer buffer of either 4K or 550 bytes.
+ * Default value is set as 4K. This value shall be chosen based on Hal flag "HDLL_4K_WRITE_SUPPORTED".
+ * undef or comment HDLL_4K_WRITE_SUPPORTED to fallback to 550 bytes write frame buffer.
+ */
+#define HDLL_4K_WRITE_SUPPORTED
+#ifdef HDLL_4K_WRITE_SUPPORTED
+  #define MAX_DL_PAYLOAD_LEN	(4096)
+#else
+  #define MAX_DL_PAYLOAD_LEN    (550)
+#endif
 #define MAX_DL_BUFFER_SIZE		(DL_HDR_LEN + DL_CRC_LEN + \
 					MAX_DL_PAYLOAD_LEN)
-
 
 /* Retry count for normal write */
 #define NO_RETRY			(1)
@@ -69,7 +79,7 @@
 #define MAX_RETRY_COUNT			(3)
 #define MAX_WRITE_IRQ_COUNT		(5)
 #define MAX_IRQ_WAIT_TIME		(90)
-#define WAKEUP_SRC_TIMEOUT		(2000)
+#define WAKEUP_SRC_TIMEOUT		(100)
 
 /* command response timeout */
 #define NCI_CMD_RSP_TIMEOUT_MS		(2000)
@@ -86,10 +96,16 @@
 #define NFC_SET_PWR         _IOW(NFC_MAGIC, 0x01, uint32_t)
 #define ESE_SET_PWR         _IOW(NFC_MAGIC, 0x02, uint32_t)
 #define ESE_GET_PWR         _IOR(NFC_MAGIC, 0x03, uint32_t)
+#define NFC_SET_RESET_READ_PENDING				_IOW(NFC_MAGIC, 0x04, uint32_t)
+#define NFC_GET_GPIO_STATUS					_IOR(NFC_MAGIC, 0x05, uint32_t)
 
 #define DTS_IRQ_GPIO_STR		"nxp,sn-irq"
 #define DTS_VEN_GPIO_STR		"nxp,sn-ven-rstn"
 #define DTS_FWDN_GPIO_STR		"nxp,sn-dwl-req"
+/* Each GPIO occupies consecutive two bits */
+#define GPIO_POS_SHIFT_VAL 2
+/* Two bits to indicate GPIO status (Invalid(-2), Set(1) or Reset(0)) */
+#define GPIO_STATUS_MASK_BITS 3
 
 enum nfcc_ioctl_request {
 	/* NFC disable request with VEN LOW */
@@ -106,6 +122,11 @@ enum nfcc_ioctl_request {
 	NFC_VEN_FORCED_HARD_RESET,
 	/* request for firmware download gpio LOW */
 	NFC_FW_DWL_LOW,
+};
+
+enum nfc_read_pending {
+	NFC_RESET_READ_PENDING,
+	NFC_SET_READ_PENDING,
 };
 
 /* nfc platform interface type */
@@ -165,6 +186,7 @@ struct cold_reset {
 	uint8_t rst_prot_src;	/* reset protection source (SPI, NFC) */
 	struct timer_list timer;
 	wait_queue_head_t read_wq;
+	bool is_nfc_read_pending;
 };
 
 /* Device specific structure */

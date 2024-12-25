@@ -158,6 +158,7 @@ static int perform_cold_reset_protection(struct nfc_dev *nfc_dev,
 {
 	int ret = 0;
 	int timeout = 0;
+	int retry_cnt = 0;
 	char *rsp = nfc_dev->read_kbuf;
 	struct cold_reset *cold_reset = &nfc_dev->cold_reset;
 
@@ -212,26 +213,33 @@ static int perform_cold_reset_protection(struct nfc_dev *nfc_dev,
 	}
 
 	timeout = NCI_CMD_RSP_TIMEOUT_MS;
+	mutex_lock(&nfc_dev->dev_ref_mutex);
 	do {
-		/* call read api directly if reader thread is not blocked */
-		if (mutex_trylock(&nfc_dev->read_mutex)) {
-			pr_debug("%s: reader thread not pending\n", __func__);
-			ret = nfc_dev->nfc_read(nfc_dev, rsp, 3,
-						timeout);
-			mutex_unlock(&nfc_dev->read_mutex);
+		if (nfc_dev->cold_reset.is_nfc_read_pending) {
+			if (!wait_event_interruptible_timeout
+			    (cold_reset->read_wq,
+			     cold_reset->rsp_pending == false,
+			     msecs_to_jiffies(timeout))) {
+				pr_err("%s: cold reset/prot response timeout\n",
+				       __func__);
+				if (retry_cnt <= 1) {
+					retry_cnt = retry_cnt + 1;
+					ret = -EAGAIN;
+				} else {
+					pr_debug("%s: Maximum retry reached",
+						 __func__);
+					ret = -ETIMEDOUT;
+				}
+			}
+		} else {
+			ret = nfc_dev->nfc_read(nfc_dev, rsp, 3, timeout);
 			if (!ret)
 				break;
 			usleep_range(READ_RETRY_WAIT_TIME_US,
 					 READ_RETRY_WAIT_TIME_US + 500);
-		/* Read pending response form the HAL service */
-		} else if (!wait_event_interruptible_timeout(
-					cold_reset->read_wq,
-					cold_reset->rsp_pending == false,
-					msecs_to_jiffies(timeout))) {
-			pr_err("%s: cold reset/prot response timeout\n", __func__);
-			ret = -EAGAIN;
 		}
-	} while (ret == -ERESTARTSYS || ret == -EFAULT);
+	} while (ret == -ERESTARTSYS || ret == -EFAULT || ret == -EAGAIN);
+	mutex_unlock(&nfc_dev->dev_ref_mutex);
 	mutex_unlock(&nfc_dev->write_mutex);
 
 	timeout = ESE_CLD_RST_REBOOT_GUARD_TIME_MS;
@@ -240,13 +248,15 @@ static int perform_cold_reset_protection(struct nfc_dev *nfc_dev,
 		if (IS_RST_PROT_REQ(arg)) {
 			cold_reset->reset_protection = IS_RST_PROT_EN_REQ(arg);
 			cold_reset->rst_prot_src = IS_RST_PROT_EN_REQ(arg) ?
-								 GET_SRC(arg) :
-								 SRC_NONE;
+			    GET_SRC(arg) : SRC_NONE;
 			/* wait for reboot guard timer */
-		} else if (wait_event_interruptible_timeout(
-				   cold_reset->read_wq, true,
+		} else {
+			if (wait_event_interruptible_timeout
+			    (cold_reset->read_wq, true,
 				   msecs_to_jiffies(timeout)) == 0) {
-			pr_info("%s: reboot guard timer timeout\n", __func__);
+				pr_info("%s: reboot guard timer timeout\n",
+					__func__);
+			}
 		}
 	}
 err:

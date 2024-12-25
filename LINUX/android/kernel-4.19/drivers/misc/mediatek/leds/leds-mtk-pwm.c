@@ -184,6 +184,8 @@ static void __led_pwm_set(struct led_pwm_info *led_info)
 	mutex_unlock(&leds_mutex);
 }
 
+static const char *proj;
+
 typedef struct {
     int brightness;
     int last_brightness;
@@ -226,6 +228,43 @@ brightness_level_table_t brightness_level[256] = {
 	{ 6, 6},{ 5, 5},{ 4, 4},{ 3, 3},{ 2, 2},{ 1, 1},{ 0, 0}
 };
 
+brightness_level_table_t brightness_level_SX4[256] = {
+    { 255, 250},{ 254, 250},{ 253, 249},{ 252, 249},{ 251, 248},{ 250, 248},{ 249, 247},
+	{ 248, 247},{ 247, 247},{ 246, 246},{ 245, 246},{ 244, 245},{ 243, 245},{ 242, 244},
+	{ 241, 244},{ 240, 243},{ 239, 243},{ 238, 243},{ 237, 242},{ 236, 242},{ 235, 241},
+	{ 234, 241},{ 233, 240},{ 232, 240},{ 231, 240},{ 230, 239},{ 229, 239},{ 228, 238},
+	{ 227, 238},{ 226, 237},{ 225, 237},{ 224, 236},{ 223, 235},{ 222, 234},{ 221, 233},
+	{ 220, 231},{ 219, 230},{ 218, 229},{ 217, 228},{ 216, 227},{ 215, 226},{ 214, 225},
+	{ 213, 224},{ 212, 222},{ 211, 221},{ 210, 220},{ 209, 219},{ 208, 218},{ 207, 217},
+	{ 206, 216},{ 205, 215},{ 204, 213},{ 203, 212},{ 202, 211},{ 201, 210},{ 200, 209},
+	{ 199, 208},{ 198, 207},{ 197, 206},{ 196, 204},{ 195, 203},{ 194, 202},{ 193, 201},
+	{ 192, 200},{ 191, 199},{ 190, 198},{ 189, 197},{ 188, 196},{ 187, 196},{ 186, 195},
+	{ 185, 194},{ 184, 193},{ 183, 192},{ 182, 191},{ 181, 190},{ 180, 189},{ 179, 188},
+	{ 178, 188},{ 177, 187},{ 176, 186},{ 175, 185},{ 174, 184},{ 173, 183},{ 172, 182},
+	{ 171, 181},{ 170, 180},{ 169, 179},{ 168, 179},{ 167, 178},{ 166, 177},{ 165, 176},
+	{ 164, 175},{ 163, 174},{ 162, 173},{ 161, 172},{ 160, 172},{ 159, 171},{ 158, 170},
+	{ 157, 169},{ 156, 168},{ 155, 167},{ 154, 166},{ 153, 165},{ 152, 165},{ 151, 164},
+	{ 150, 163},{ 149, 162},{ 148, 161},{ 147, 160},{ 146, 159},{ 145, 159},{ 144, 158},
+	{ 143, 157},{ 142, 156},{ 141, 155},{ 140, 154},{ 139, 153},{ 138, 152},{ 137, 152},
+	{ 136, 151},{ 135, 150},{ 134, 149},{ 133, 148},{ 132, 147},{ 131, 146},{ 130, 146},
+	{ 129, 145},{ 128, 144},{ 127, 143},{ 126, 142},{ 125, 141},{ 124, 141},{ 123, 140},
+	{ 122, 139},{ 121, 138},{ 120, 137},{ 119, 136},{ 118, 136},{ 117, 135},{ 116, 134},
+	{ 115, 133},{ 114, 132},{ 113, 131},{ 112, 131},{ 111, 130},{ 110, 129},{ 109, 128},
+	{ 108, 127},{ 107, 126},{ 106, 126},{ 105, 125},{ 104, 124},{ 103, 123},{ 102, 122},
+	{ 101, 122},{ 100, 121},{ 99, 120},{ 98, 119},{ 97, 118},{ 96, 118},{ 95, 117},{ 94, 116},
+	{ 93, 115},{ 92, 114},{ 91, 114},{ 90, 113},{ 89, 112},{ 88, 111},{ 87, 110},{ 86, 109},
+	{ 85, 108},{ 84, 107},{ 83, 107},{ 82, 106},{ 81, 105},{ 80, 104},{ 79, 103},{ 78, 102},
+	{ 77, 101},{ 76, 100},{ 75, 99},{ 74, 98},{ 73, 97},{ 72, 96},{ 71, 96},{ 70, 95},
+	{ 69, 94},{ 68, 93},{ 67, 92},{ 66, 91},{ 65, 90},{ 64, 89},{ 63, 88},{ 62, 87},{ 61, 86},
+	{ 60, 85},{ 59, 84},{ 58, 83},{ 57, 82},{ 56, 81},{ 55, 80},{ 54, 79},{ 53, 78},{ 52, 77},
+	{ 51, 76},{ 50, 75},{ 49, 74},{ 48, 72},{ 47, 71},{ 46, 70},{ 45, 68},{ 44, 67},{ 43, 66},
+	{ 42, 64},{ 41, 63},{ 40, 62},{ 39, 60},{ 38, 59},{ 37, 58},{ 36, 56},{ 35, 55},{ 34, 54},
+	{ 33, 52},{ 32, 51},{ 31, 49},{ 30, 48},{ 29, 46},{ 28, 44},{ 27, 43},{ 26, 41},{ 25, 39},
+	{ 24, 38},{ 23, 36},{ 22, 35},{ 21, 33},{ 20, 32},{ 19, 30},{ 18, 29},{ 17, 27},{ 16, 26},
+	{ 15, 24},{ 14, 23},{ 13, 21},{ 12, 20},{ 11, 18},{ 10, 17},{ 9, 15},{ 8, 13},{ 7, 11},
+	{ 6, 9},{ 5, 7},{ 4, 6},{ 3, 4},{ 2, 3},{ 1, 1},{ 0, 0}
+};
+
 static int led_level_pwm_set(struct mtk_led_data *led_dat,
 				int brightness)
 {
@@ -233,14 +272,30 @@ static int led_level_pwm_set(struct mtk_led_data *led_dat,
 	unsigned long long duty;
 	int i = 0;
 
-	for(i = 0; i <= 255; i++)
-    {
-         if( brightness == brightness_level[i].brightness){
-			brightness = brightness_level[i].last_brightness;
-			pr_notice("led_level_set brightness_level[%d].brightness:%d  new brightness state:%d!\n", i, brightness_level[i].brightness, brightness);
-            break;
-        }
-    }
+	if (!strcmp(proj, "SX4")){
+		pr_notice("led_level_pwm_set proj property %s", proj);
+		for(i = 0; i <= 255; i++)
+	    {
+	         if( brightness == brightness_level_SX4[i].brightness){
+				brightness = brightness_level_SX4[i].last_brightness;
+				pr_notice("led_level_pwm_set %s brightness_level_SX4[%d].brightness:%d  new brightness state:%d!\n", proj, i, brightness_level_SX4[i].brightness, brightness);
+	            break;
+	        }
+	    }
+	}
+	else if (!strcmp(proj, "SX3")){
+		pr_notice("led_level_pwm_set proj property %s", proj);
+		for(i = 0; i <= 255; i++)
+	    {
+	         if( brightness == brightness_level[i].brightness){
+				brightness = brightness_level[i].last_brightness;
+				pr_notice("led_level_pwm_set %s brightness_level[%d].brightness:%d  new brightness state:%d!\n", proj, i, brightness_level[i].brightness, brightness);
+	            break;
+	        }
+	    }
+
+	}
+
 
 	brightness = min(brightness, led_dat->conf.max_level);
 	if (brightness == led_dat->conf.level)
@@ -508,6 +563,14 @@ static int mtk_leds_parse_dt(struct device *dev,
 		} else {
 			level = s_led->info.config.max_brightness;
 		}
+
+		ret = of_property_read_string(child, "proj", &proj);
+		if (ret) {
+			pr_notice("Fail to read proj property");
+		}else{
+			pr_notice("proj property %s", proj);
+		}
+
 		pr_info("parse %s(%d) leds dt: %s, %s, %d, %d, %d\n",
 			s_led->conf.cdev.name, num, s_led->info.config.name,
 			s_led->info.config.default_trigger,

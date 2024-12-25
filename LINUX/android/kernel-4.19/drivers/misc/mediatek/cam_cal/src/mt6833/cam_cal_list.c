@@ -10,11 +10,27 @@
 #include "kd_imgsensor.h"
 
 #define MAX_EEPROM_SIZE_16K 0x4000
+#define MAX_EEPROM_SIZE_8K 0x2000
+
 
 struct stCAM_CAL_LIST_STRUCT g_camCalList[] = {
 	/*Below is commom sensor */
+#if defined(S5K3L6_MIPI_RAW)
 	{S5K3L6_SENSOR_ID, 0xA0, Common_read_region, MAX_EEPROM_SIZE_16K},
+#endif
+
+#if defined(HI556_MIPI_RAW)
 	{HI556_SENSOR_ID, 0x50, Custom_read_region_HI556, MAX_EEPROM_SIZE_16K},
+#endif
+
+#if defined(S5KJNSSQ33_MIPI_RAW)
+	{S5KJNSSQ33_SENSOR_ID, 0xA0, Common_read_region, MAX_EEPROM_SIZE_16K},
+#endif
+
+#if defined(S5K4H7_MIPI_RAW)
+	{S5K4H7_SENSOR_ID, 0xA0, Common_read_region, MAX_EEPROM_SIZE_8K},
+#endif
+
 	/*  ADD before this line */
 	{0, 0, 0}       /*end of list */
 };

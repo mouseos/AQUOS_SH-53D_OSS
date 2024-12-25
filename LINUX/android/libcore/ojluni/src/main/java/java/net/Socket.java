@@ -40,8 +40,6 @@ import java.security.PrivilegedAction;
 import java.util.Set;
 import java.util.Collections;
 
-import com.mediatek.cta.CtaAdapter;
-
 /**
  * This class implements client sockets (also called just
  * "sockets"). A socket is an endpoint for communication
@@ -634,15 +632,6 @@ class Socket implements java.io.Closeable {
         InetAddress addr = epoint.getAddress ();
         int port = epoint.getPort();
         checkAddress(addr, "connect");
-
-        ///M: Support Mom Check @{
-        synchronized (Socket.class) {
-            if (!CtaAdapter.isSendingPermitted(port)) {
-              System.out.println("Fail to send due to mom user permission");
-              throw new UnknownHostException("User denied by MoM");
-            }
-        }
-        ///@}
 
         SecurityManager security = System.getSecurityManager();
         if (security != null) {

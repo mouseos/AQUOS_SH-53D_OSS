@@ -71,8 +71,14 @@ char *MP_UPDATE_FIRMWARE_NAME;
 #endif
 /* For SPI mode */
 #define PINCTRL_STATE_SPI_DEFAULT   "nt36532_spi_mode"
+#define PINCTRL_STATE_SPI_LOWPOWER_MODE   "nt36532_spi_lowpower_mode"
+#define PINCTRL_STATE_TOUCH_LOWPOWER_MODE   "nt36532_touch_lowpower_mode"
 static struct pinctrl *nt36672_pinctrl;
+static struct pinctrl *nt36672_touch_pinctrl;
+
 static struct pinctrl_state *nt36672_spi_mode_default;
+static struct pinctrl_state *nt36672_spi_mode_lowpower;
+static struct pinctrl_state *nt36672_touch_mode_lowpower;
 
 #if defined(CONFIG_FB)
 static int nvt_fb_notifier_callback(struct notifier_block *self, unsigned long event, void *data);
@@ -1877,7 +1883,6 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 #endif
 
 	NVT_LOG("start\n");
-
 	ts = (struct nvt_ts_data *)kzalloc(sizeof(struct nvt_ts_data), GFP_KERNEL);
 	if (ts == NULL) {
 		NVT_ERR("failed to allocated memory for nvt ts data\n");
@@ -1943,7 +1948,6 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 		NVT_ERR("gpio config error!\n");
 		goto err_gpio_config_failed;
 	}
-
 	/* get pinctrl handler from of node */
 	nt36672_pinctrl = devm_pinctrl_get(
 		ts->client->controller->dev.parent);
@@ -1953,6 +1957,23 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 		goto err_gpio_config_failed;
 	}
 
+	nt36672_touch_pinctrl = devm_pinctrl_get(
+		&ts->client->dev);
+	if (IS_ERR_OR_NULL(nt36672_touch_pinctrl)) {
+		NVT_ERR("Failed to get pinctrl handler[need confirm]");
+		nt36672_touch_pinctrl = NULL;
+		goto err_gpio_config_failed;
+	}
+	nt36672_touch_mode_lowpower = pinctrl_lookup_state(
+				nt36672_touch_pinctrl, PINCTRL_STATE_TOUCH_LOWPOWER_MODE);
+	if (IS_ERR_OR_NULL(nt36672_touch_mode_lowpower)) {
+		ret = PTR_ERR(nt36672_touch_mode_lowpower);
+		NVT_ERR("Failed to get pinctrl state:%s, r:%d",
+				PINCTRL_STATE_TOUCH_LOWPOWER_MODE, ret);
+		nt36672_touch_mode_lowpower = NULL;
+		goto err_pinctrl_failed;
+	}
+
 	nt36672_spi_mode_default = pinctrl_lookup_state(
 				nt36672_pinctrl, PINCTRL_STATE_SPI_DEFAULT);
 	if (IS_ERR_OR_NULL(nt36672_spi_mode_default)) {
@@ -1960,6 +1981,16 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 		NVT_ERR("Failed to get pinctrl state:%s, r:%d",
 				PINCTRL_STATE_SPI_DEFAULT, ret);
 		nt36672_spi_mode_default = NULL;
+		goto err_pinctrl_failed;
+	}
+
+	nt36672_spi_mode_lowpower = pinctrl_lookup_state(
+				nt36672_pinctrl, PINCTRL_STATE_SPI_LOWPOWER_MODE);
+	if (IS_ERR_OR_NULL(nt36672_spi_mode_lowpower)) {
+		ret = PTR_ERR(nt36672_spi_mode_lowpower);
+		NVT_ERR("Failed to get pinctrl state:%s, r:%d",
+				PINCTRL_STATE_SPI_LOWPOWER_MODE, ret);
+		nt36672_spi_mode_lowpower = NULL;
 		goto err_pinctrl_failed;
 	}
 
@@ -2473,12 +2504,21 @@ static int32_t nvt_ts_suspend(struct device *dev)
 #if MT_PROTOCOL_B
 	uint32_t i = 0;
 #endif
-
+	int ret;
 	if (!bTouchIsAwake) {
 		NVT_LOG("Touch is already suspend\n");
 		return 0;
 	}
 
+	ret = pinctrl_select_state(nt36672_pinctrl,
+					nt36672_spi_mode_lowpower);
+	if (ret < 0)
+		NVT_ERR("Failed to select lowpower pinstate, r:%d", ret);
+
+	ret = pinctrl_select_state(nt36672_touch_pinctrl,
+					nt36672_touch_mode_lowpower);
+	if (ret < 0)
+		NVT_ERR("Failed to select default pinstate, r:%d", ret);
 
 #if WAKEUP_GESTURE
 	if (nvt_gesture_flag == false)
@@ -2567,16 +2607,21 @@ return:
 *******************************************************/
 static int32_t nvt_ts_resume(struct device *dev)
 {
+	int ret;
 	if (bTouchIsAwake) {
 		NVT_LOG("Touch is already resume\n");
 		return 0;
 	}
 
 	mutex_lock(&ts->lock);
-
 	NVT_LOG("start\n");
 
-	// please make sure display reset(RESX) sequence and mipi dsi cmds sent before this
+	ret = pinctrl_select_state(nt36672_pinctrl,
+					nt36672_spi_mode_default);
+	if (ret < 0)
+		NVT_ERR("Failed to select default pinstate, r:%d", ret);
+
+// please make sure display reset(RESX) sequence and mipi dsi cmds sent before this
 #if NVT_TOUCH_SUPPORT_HW_RST
 	gpio_set_value(ts->reset_gpio, 1);
 #endif

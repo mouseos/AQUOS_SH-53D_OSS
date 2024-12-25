@@ -14,6 +14,10 @@ subdir-ccflags-y += -I$(MTK_CUSTOM_PATH)/imgsensor/inc \
                     -I$(CAM_CAL_SRC_PATH)/common/$(COMMON_VERSION)
 subdir-ccflags-y += -I$(srctree)/drivers/i2c/busses/
 
+CUSTOM_KERNEL_FLAGS := $(addprefix -D, $(shell echo \
+             $(CONFIG_CUSTOM_KERNEL_IMGSENSOR) | tr a-z A-Z))
+subdir-ccflags-y += $(CUSTOM_KERNEL_FLAGS)
+
 # Common code
 obj-y += ../common/$(COMMON_VERSION)/eeprom_driver.o
 obj-y += ../common/$(COMMON_VERSION)/eeprom_i2c_common_driver.o

@@ -1117,19 +1117,17 @@ void DSI_Config_VDO_Timing(enum DISP_MODULE_ENUM module,
 		/*if not power on scenario
 		 * if disp_fps !=0 means dynfps happen
 		 */
-		if (bdg_is_bdg_connected() == 1) {
-			if (_dsi_context[i].disp_fps) {
-				int j;
+		if (_dsi_context[i].disp_fps) {
+			int j;
 
-				for (j = 0; j < dsi_params->dfps_num; j++) {
-					if ((dsi_params->dfps_params)[j].fps ==
-						_dsi_context[i].disp_fps) {
-						dfps_params =
-							&((dsi_params->dfps_params)[j]);
-						DISPMSG("%s,disp_fps=%d\n",
-							__func__, _dsi_context[i].disp_fps);
-						break;
-					}
+			for (j = 0; j < dsi_params->dfps_num; j++) {
+				if ((dsi_params->dfps_params)[j].fps ==
+					_dsi_context[i].disp_fps) {
+					dfps_params =
+						&((dsi_params->dfps_params)[j]);
+					DISPMSG("%s,disp_fps=%d\n",
+						__func__, _dsi_context[i].disp_fps);
+					break;
 				}
 			}
 		}
@@ -1452,7 +1450,8 @@ enum DSI_STATUS DSI_TXRX_Control(enum DISP_MODULE_ENUM module,
 	bool hstx_cklp_en = dsi_params->cont_clock ? FALSE : TRUE;
 	int max_return_size = 0;
 
-	hstx_cklp_en = false;
+	if (bdg_is_bdg_connected() == 1)
+		hstx_cklp_en = false;
 	switch (lane_num) {
 	case LCM_ONE_LANE:
 		lane_num_bitvalue = 0x1;

@@ -74,4 +74,5 @@ obj-$(CONFIG_DRM_PANEL_NT36532_DSI_VDO_TIANMA) += panel-nt36532-dsi-vdo-tianma.o
 obj-$(CONFIG_BACKLIGHT_KTZ8866) += ktz8866.o
 obj-$(CONFIG_DRM_PANEL_NT36532_DSI_VDO_BOE_6382) += panel-nt36532-dsi-vdo-boe-6382.o
 obj-$(CONFIG_DRM_PANEL_DJN_FL7703N_VDO) += fih-panel-djn-fl7703n-vdo.o
-
+obj-$(CONFIG_DRM_PANEL_DJN_NT36528H_VDO) += fih-panel-djn-nt36528h-vdo.o
+obj-$(CONFIG_DRM_PANEL_CPT_NT36528H_VDO) += fih-panel-cpt-nt36528h-vdo.o

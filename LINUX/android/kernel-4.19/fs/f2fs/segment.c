@@ -507,6 +507,16 @@ void f2fs_balance_fs(struct f2fs_sb_info *sbi, bool need)
 	 */
 	if (has_not_enough_free_secs(sbi, 0, 0)) {
 		down_write(&sbi->gc_lock);
+#ifdef CONFIG_MACH_MT6739
+		if (free_sections(sbi) <= NR_GC_CHECKPOINT_SECS) {
+			pr_info("%s:skip gc since free secions[0x%x] is less than NR_GC_CHECKPOINT_SECS. secmap=0x%x, segmap=0x%x\n",
+				__func__, free_sections(sbi),
+				bitmap_weight(FREE_I(sbi)->free_secmap, MAIN_SECS(sbi)),
+				bitmap_weight(FREE_I(sbi)->free_segmap, MAIN_SEGS(sbi)));
+			up_write(&sbi->gc_lock);
+			return;
+		}
+#endif
 		f2fs_gc(sbi, false, false, NULL_SEGNO);
 	}
 }
@@ -2404,6 +2414,13 @@ find_other_zone:
 		if (dir == ALLOC_RIGHT) {
 			secno = find_next_zero_bit(free_i->free_secmap,
 							MAIN_SECS(sbi), 0);
+#ifdef CONFIG_MACH_MT6739
+			if (secno >= MAIN_SECS(sbi)) {
+				pr_info("%s: free info, secs: 0x%x, segs: 0x%x, secmap: 0x%x\n",
+					__func__, free_i->free_sections, free_i->free_segments,
+					(MAIN_SECS(sbi) - bitmap_weight(free_i->free_secmap, MAIN_SECS(sbi))));
+			}
+#endif
 			f2fs_bug_on(sbi, secno >= MAIN_SECS(sbi));
 		} else {
 			go_left = 1;

@@ -4886,6 +4886,11 @@ page_owner=on loop.max_part=7";
 		status = "okay";
 	};
 
+	mtee_svp: mtee_svp {
+		compatible = "medaitek,svp";
+	};
+	/* svp end */
+
 	disp_ovl0@14008000 {
 		compatible = "mediatek,disp_ovl0";
 		reg = <0 0x14008000 0 0x1000>;

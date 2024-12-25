@@ -198,7 +198,7 @@ struct fts_ts_data {
 
     bool gesture_support;   /* gesture enable or disable, default: disable */
     u8 gesture_bmode;       /*gesture buffer mode*/
-
+    u8 touch_fw_ver;
     u8 pen_etype;
     struct pen_event pevent;
     struct ts_event events[FTS_MAX_POINTS_SUPPORT];    /* multi-touch */

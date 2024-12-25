@@ -281,6 +281,7 @@ enum Fg_data_type {
 	FG_DATA_TYPE_NUMBER
 };
 
+#define DATA_SIZE 2048
 struct fgd_cmd_param_t_6 {
 	unsigned int type;
 	unsigned int total_size;
@@ -665,6 +666,8 @@ struct customized_capacity{
 	int pre_capacity;
 	int current_below_200ma_count;
 	int discharge_count;
+	int discharge_capacity;
+	bool capacity_full;
 	bool modified_cap;
 	bool too_fast_to_100_persent_state;
 };

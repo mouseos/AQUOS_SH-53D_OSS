@@ -46,6 +46,11 @@
 #include "mtk_charger_intf.h"
 
 int check_cable_in;
+extern int input_current_max;
+extern int is_pd_type;
+extern void wakelock_en(bool en);
+int ac_charger_online;
+int sdp_online;
 
 enum typec_cc_state {
 	TYPEC_CC_UNKNOWN = -1,
@@ -256,8 +261,9 @@ static int mt_charger_get_property(struct power_supply *psy,
 			pr_info("%s: Charger Type: CHARGER_UNKNOWN\n", __func__);
 			break;
 		default:
+			break;
+		}
 		break;
-	}
 	default:
 		return -EINVAL;
 	}
@@ -369,7 +375,20 @@ static int mt_ac_get_property(struct power_supply *psy,
 		if ((mtk_chg->chg_type == STANDARD_HOST) ||
 			(mtk_chg->chg_type == CHARGING_HOST))
 			val->intval = 0;
+		ac_charger_online = val->intval;
 		break;
+	case POWER_SUPPLY_PROP_CURRENT_MAX:
+		val->intval = input_current_max ;//uA
+		chr_err("[%s]input_current_max = %d mA \n",__func__,input_current_max/1000);
+		break;
+	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
+		if(is_pd_type == 2||is_pd_type == 3||is_pd_type == 4)
+			val->intval = 9000000; // uV
+		else
+			val->intval = 5000000; // uV
+		chr_err("[%s]vbus_max = %d mV \n",__func__,val->intval/1000);
+		break;
+
 	default:
 		return -EINVAL;
 	}
@@ -391,6 +410,7 @@ static int mt_usb_get_property(struct power_supply *psy,
 			val->intval = 1;
 		else
 			val->intval = 0;
+		sdp_online = val->intval;
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_MAX:
 		val->intval = 500000;
@@ -451,6 +471,8 @@ static enum power_supply_property mt_charger_properties[] = {
 
 static enum power_supply_property mt_ac_properties[] = {
 	POWER_SUPPLY_PROP_ONLINE,
+	POWER_SUPPLY_PROP_CURRENT_MAX,
+	POWER_SUPPLY_PROP_VOLTAGE_MAX,
 };
 
 static enum power_supply_property mt_usb_properties[] = {
@@ -535,6 +557,7 @@ static int pd_tcp_notifier_call(struct notifier_block *pnb,
 		    noti->typec_state.new_state == TYPEC_ATTACHED_NORP_SRC)) {
 			pr_info("%s USB Plug in, pol = %d\n", __func__,
 					noti->typec_state.polarity);
+			wakelock_en(true);
 			plug_in_out_handler(cti, true, false);
 		} else if ((noti->typec_state.old_state == TYPEC_ATTACHED_SNK ||
 		    noti->typec_state.old_state == TYPEC_ATTACHED_CUSTOM_SRC ||
@@ -555,6 +578,7 @@ static int pd_tcp_notifier_call(struct notifier_block *pnb,
 				break;
 			}
 			pr_info("%s USB Plug out\n", __func__);
+			wakelock_en(false);
 			plug_in_out_handler(cti, false, false);
 		} else if (noti->typec_state.old_state == TYPEC_ATTACHED_SRC &&
 			noti->typec_state.new_state == TYPEC_ATTACHED_SNK) {

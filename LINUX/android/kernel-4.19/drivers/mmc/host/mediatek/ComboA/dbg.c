@@ -283,6 +283,7 @@ inline void __dbg_add_host_log(struct mmc_host *mmc, int type,
 		return;
 
 	t = cpu_clock(print_cpu_test);
+	nanosec_rem = do_div(t, 1000000000)/1000;
 #ifdef CONFIG_MTK_EMMC_HW_CQ
 	spin_lock_irqsave(&host->cmd_dump_lock, flags);
 #endif
@@ -290,7 +291,6 @@ inline void __dbg_add_host_log(struct mmc_host *mmc, int type,
 	switch (type) {
 	case 0: /* normal - cmd */
 		tn = t;
-		nanosec_rem = do_div(t, 1000000000)/1000;
 		if (cmd == 44) {
 			tag = (arg >> 16) & 0x1f;
 			dbg_task_log_dat[tag].size = arg & 0xffff;
@@ -316,7 +316,6 @@ inline void __dbg_add_host_log(struct mmc_host *mmc, int type,
 	case 5: /* cqhci - data */
 	case 60: /* cqhci - dcmd */
 	case 61: /* cqhci - dcmd resp */
-		nanosec_rem = do_div(t, 1000000000)/1000;
 		/*skip log if last cmd rsp are the same*/
 		if (last_cmd == cmd &&
 			last_arg == arg && cmd == 13) {
@@ -382,7 +381,6 @@ inline void __dbg_add_host_log(struct mmc_host *mmc, int type,
 	/* add softirq record */
 	case MAGIC_CQHCI_DBG_TYPE_SIRQ:
 		tn = t;
-		nanosec_rem = do_div(t, 1000000000)/1000;
 
 		dbg_run_host_log_dat[dbg_host_cnt].time_sec = t;
 		dbg_run_host_log_dat[dbg_host_cnt].time_usec = nanosec_rem;
@@ -658,12 +656,14 @@ void get_msdc_aee_buffer(unsigned long *vaddr, unsigned long *size)
 		return;
 	}
 
+	if (vaddr == NULL || size == NULL)
+		return;
+
 	buff = msdc_aee_buffer;
 	msdc_dump_host_state(&buff, &free_size, NULL, host);
 	mmc_cmd_dump(&buff, &free_size, NULL, host->mmc, dbg_max_cnt);
 	mmc_low_io_dump(&buff, &free_size, NULL, host->mmc);
 	/* retrun start location */
-	WARN_ON(vaddr == NULL);
 	*vaddr = (unsigned long)msdc_aee_buffer;
 	*size = MSDC_AEE_BUFFER_SIZE - free_size;
 }

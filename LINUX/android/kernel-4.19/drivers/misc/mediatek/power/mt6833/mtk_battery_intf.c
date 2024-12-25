@@ -14,6 +14,7 @@
 #endif
 
 extern int sharp_customized_uisoc(int mtk_uisoc);
+extern int sharp_customized_uisoc_sx4(int mtk_uisoc);
 
 int __attribute__((weak)) charger_get_vbus(void)
 {
@@ -127,7 +128,14 @@ signed int battery_get_uisoc(void)
 			(boot_mode == ATE_FACTORY_BOOT))
 			return 75;
 		else if (boot_mode == 0)
+		{
+		#if defined(CONFIG_FIH_SX4)
+			return  sharp_customized_uisoc_sx4(gm->ui_soc);
+		#else 
 			return  sharp_customized_uisoc(gm->ui_soc);
+		#endif 
+		}
+			
 	}
 
 	return 50;

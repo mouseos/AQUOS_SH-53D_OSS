@@ -6889,6 +6889,8 @@ static int ISP_release(struct inode *pInode, struct file *pFile)
 		 */
 		ISP_WR32(CAM_REG_CTL_TWIN_STATUS(i), 0x0);
 
+		ISP_StopHW(i);
+
 		LOG_INF("dev(%d): Disable all clk, cnt(%d)\n", i, clkcnt);
 		for (j = 0; j < clkcnt; j++)
 			ISP_EnableClock(i, MFALSE);
@@ -6910,6 +6912,8 @@ static int ISP_release(struct inode *pInode, struct file *pFile)
 		Reg = ISP_RD32(CAMSV_REG_TG_VF_CON(i));
 		Reg &= 0xfffffffE; /* close Vfinder */
 		ISP_WR32(CAMSV_REG_TG_VF_CON(i), Reg);
+
+		ISP_StopSVHW(i);
 
 		LOG_INF("dev(%d): Disable all clk, cnt(%d)\n", i, clkcnt);
 		for (j = 0; j < clkcnt; j++)
@@ -12199,7 +12203,7 @@ irqreturn_t ISP_Irq_CAM(
 
 			IRQ_LOG_KEEPER(
 			module, m_CurrentPPB, _LOG_INF,
-			"%s,%s,CAM_%c P1_SOF_%d_%d(0x%08x_0x%08x,0x%08x_0x%08x,0x%08x,0x%08x,0x%x),int_us:%d,cq:0x%08x\n",
+			"%s,%s,CAM_%c P1_SOF_%d_%d(0x%08x_0x%08x,0x%08x_0x%08x,0x%08x,0x%08x(X:%d Y:%d S:0x%08x),0x%x),int_us:%d,cq:0x%08x\n",
 			gPass1doneLog[module]._str,
 			gLostPass1doneLog[module]._str,
 			'A' + cardinalNum, sof_count[module], cur_v_cnt,
@@ -12213,6 +12217,10 @@ irqreturn_t ISP_Irq_CAM(
 				CAM_REG_FBC_RRZO_CTL2(reg_module))),
 			ISP_RD32(CAM_REG_IMGO_BASE_ADDR(reg_module)),
 			ISP_RD32(CAM_REG_RRZO_BASE_ADDR(reg_module)),
+			(int)ISP_RD32(CAM_REG_RRZO_XSIZE(reg_module)) & 0xFFFF,
+			(int)ISP_RD32(CAM_REG_RRZO_YSIZE(reg_module)) & 0xFFFF,
+			(unsigned int)(ISP_RD32(
+				CAM_REG_RRZO_STRIDE(reg_module))),
 			magic_num,
 			(unsigned int)((sec * 1000000 + usec) -
 				       (1000000 * m_sec[module] + m_usec[module])),

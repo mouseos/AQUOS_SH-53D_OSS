@@ -21,4 +21,6 @@ unsigned int Custom_read_region_HI556(struct i2c_client *client,
 				unsigned char *data,
 				unsigned int size);
 
-#endif				/* __CAM_CAL_LIST_H */
+#endif
+
+/* __CAM_CAL_LIST_H */

@@ -56,6 +56,23 @@ static struct thermal_cooling_device
 
 static struct sd_state cl_sd_state[MAX_NUM_INSTANCE_MTK_COOLER_SHUTDOWN];
 
+static void notify_thermal_shutdown(const char *src, struct thermal_cooling_device *cdev) {
+	static bool is_notified = false;
+	if (is_notified == false) {
+		char event[20] = "SHUTDOWN=1";
+		char *envp[2] = { event, NULL };
+		/* send uevent to notify current call must be dropped */
+		kobject_uevent_env(&(cdev->device.kobj), KOBJ_CHANGE, envp);
+		is_notified = true;
+		mtk_cooler_shutdown_dprintk("%s trigger shutdown", src);
+#ifdef CONFIG_FIH_SX4
+		printk("FIHBATTLOG::124\n"); // 124 SHTHERMAL_POWER_OFF
+#endif
+	} else {
+		mtk_cooler_shutdown_dprintk("%s trigger shutdown (silence)", src);
+	}
+}
+
 #if defined(MTK_COOLER_SHUTDOWN_SIGNAL)
 
 static unsigned int tm_pid;
@@ -316,41 +333,64 @@ static int _mtk_cl_sd_send_signal(void)
 				char event[20] = "SHUTDOWN=0";
 				char *envp[2] = { event, NULL };
 
-				//printk("FIHBATTLOG::123\n"); // 123 SHTHERMAL_POWER_OFF_DIALOG
+#ifdef CONFIG_FIH_SX4
+				printk("FIHBATTLOG::123\n"); // 123 SHTHERMAL_POWER_OFF_DIALOG
+#endif
 				/* send uevent to notify current call must be dropped */
 				kobject_uevent_env(&(cdev->device.kobj),
 					KOBJ_CHANGE, envp);
 				ts_start =  ktime_get_seconds();
 			} else {
 				if ((ktime_get_seconds() - ts_start) >= 180) { // High Temp Alarm keep for 3 min
-					char event[20] = "SHUTDOWN=1";
-					char *envp[2] = { event, NULL };
-
- 					//printk("FIHBATTLOG::124\n"); // 124 SHTHERMAL_POWER_OFF
-					/* send uevent to notify current call must be dropped */
-					kobject_uevent_env(&(cdev->device.kobj),
-						KOBJ_CHANGE, envp);
+					notify_thermal_shutdown(__func__, cdev);
+#if 0
+					static bool is_notified = false;
+					if (is_notified == false) {
+						char event[20] = "SHUTDOWN=1";
+						char *envp[2] = { event, NULL };
+#ifdef CONFIG_FIH_SX4
+						printk("FIHBATTLOG::124\n"); // 124 SHTHERMAL_POWER_OFF
+#endif
+						/* send uevent to notify current call must be dropped */
+						kobject_uevent_env(&(cdev->device.kobj),
+							KOBJ_CHANGE, envp);
+						is_notified = true;
+					}
+#endif
 				}
 			}
 		}
 	} else if (cdev == cl_shutdown_dev[1]) { // High Temp Shutdown
 		if (state == 1) {
-			char event[20] = "SHUTDOWN=1";
-			char *envp[2] = { event, NULL };
+			notify_thermal_shutdown(__func__, cdev);
+#if 0
+			static bool is_notified = false;
+			if (is_notified == false) {
+				char event[20] = "SHUTDOWN=1";
+				char *envp[2] = { event, NULL };
 
-			//printk("FIHBATTLOG::124\n"); // 124 SHTHERMAL_POWER_OFF
-			/* send uevent to notify current call must be dropped */
-			kobject_uevent_env(&(cdev->device.kobj),
-				KOBJ_CHANGE, envp);
+#ifdef CONFIG_FIH_SX4
+				printk("FIHBATTLOG::124\n"); // 124 SHTHERMAL_POWER_OFF
+#endif
+				/* send uevent to notify current call must be dropped */
+				kobject_uevent_env(&(cdev->device.kobj),
+					KOBJ_CHANGE, envp);
+				is_notified = true;
+			}
+#endif
 		}
 	} else if (cdev == cl_shutdown_dev[2]) { // Low Temp Shutdown
 		if (state == 1) {
-			char event[20] = "SHUTDOWN=2";
-			char *envp[2] = { event, NULL };
+			static bool is_notified = false;
+			if (is_notified == false) {
+				char event[20] = "SHUTDOWN=2";
+				char *envp[2] = { event, NULL };
 
-			/* send uevent to notify current call must be dropped */
-			kobject_uevent_env(&(cdev->device.kobj),
-				KOBJ_CHANGE, envp);
+				/* send uevent to notify current call must be dropped */
+				kobject_uevent_env(&(cdev->device.kobj),
+					KOBJ_CHANGE, envp);
+				is_notified = true;
+			}
 		}
 	}
 #endif

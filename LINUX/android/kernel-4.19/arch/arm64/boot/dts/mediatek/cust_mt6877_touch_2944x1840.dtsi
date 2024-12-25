@@ -8,9 +8,11 @@
 	status = "okay";
 	#address-cells = <1>;
 	#size-cells = <0>;
-	pinctrl-names = "default","nt36532_spi_mode";
+
+	pinctrl-names = "default","nt36532_spi_mode","nt36532_spi_lowpower_mode";
 	pinctrl-0 = <&ctp_nt36532_pins_default>;
 	pinctrl-1 = <&ctp_nt36532_spi_mode>;
+	pinctrl-2 = <&ctp_nt36532_spi_lowpower_mode>;
 
 	/* Novatek device tree node */
 	novatek@0 {
@@ -18,7 +20,10 @@
 		reg = <0>; //Same as CS ID
 		status = "okay";
 
-		spi-max-frequency = <4800000>;	//4800000,9600000,15000000,19200000
+		pinctrl-names ="nt36532_touch_lowpower_mode";
+		pinctrl-0 = <&touch_pin_sleep>;
+
+		spi-max-frequency = <4800000>;//4800000,9600000,15000000,19200000
 		novatek,reset-gpio = <&pio 150 0x00>;
 		novatek,irq-gpio = <&pio 14 0x2001>;
 		novatek,pen-support;
@@ -1364,6 +1369,7 @@
 &pio {
 	ctp_nt36532_pins_default: pins_default {
 	};
+
 	ctp_nt36532_spi_mode: spimode_default {
 		pins_cmd_dat {
 			pinmux = <PINMUX_GPIO12__FUNC_SPI4_MI>,
@@ -1371,6 +1377,26 @@
 				<PINMUX_GPIO64__FUNC_SPI4_CLK>,
 				<PINMUX_GPIO65__FUNC_SPI4_CSB>;
 			drive-strength = <7>;
+		};
+	};
+
+	ctp_nt36532_spi_lowpower_mode: spi_sleepmode_default {
+		pins_cmd_dat {
+			pinmux = <PINMUX_GPIO12__FUNC_GPIO12>,
+				<PINMUX_GPIO13__FUNC_GPIO13>,
+				<PINMUX_GPIO64__FUNC_GPIO64>,
+				<PINMUX_GPIO65__FUNC_GPIO65>;
+				input-enable;
+				bias-disable;
+		};
+	};
+
+	touch_pin_sleep: touch_pin_sleep {
+		pins_cmd_dat {
+			pinmux = <PINMUX_GPIO150__FUNC_GPIO150>,
+				<PINMUX_GPIO14__FUNC_GPIO14>;
+				input-enable;
+				bias-disable;
 		};
 	};
 };

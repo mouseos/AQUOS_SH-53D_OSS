@@ -248,7 +248,7 @@ static int ufs_mtk_rpmb_cmd_seq(struct device *dev,
 	 * Use rpmb lock to prevent other rpmb read/write threads cut in line.
 	 * Use mutex not spin lock because in/out function might sleep.
 	 */
-	mutex_lock(&host->rpmb_lock);
+	down(&host->rpmb_sem);
 	for (ret = 0, i = 0; i < ncmds && !ret; i++) {
 		cmd = &cmds[i];
 		if (cmd->flags & RPMB_F_WRITE)
@@ -258,7 +258,7 @@ static int ufs_mtk_rpmb_cmd_seq(struct device *dev,
 			ret = ufs_mtk_rpmb_security_in(sdev, cmd->frames,
 						      cmd->nframes);
 	}
-	mutex_unlock(&host->rpmb_lock);
+	up(&host->rpmb_sem);
 
 	scsi_device_put(sdev);
 	return ret;
@@ -312,6 +312,11 @@ void ufs_mtk_rpmb_add(struct ufs_hba *hba, struct scsi_device *sdev_rpmb)
 	 *            rpmb ioctl solution.
 	 */
 	host->rawdev_ufs_rpmb = rdev;
+
+	/*
+	 * Initialize rpmb semaphore.
+	 */
+	sema_init(&host->rpmb_sem, 1);
 
 	return;
 
@@ -434,7 +439,7 @@ int ufs_mtk_ioctl_rpmb(struct ufs_hba *hba, const void __user *buf_user)
 	 * Use rpmb lock to prevent other rpmb read/write threads cut in line.
 	 * Use mutex not spin lock because in/out function might sleep.
 	 */
-	mutex_lock(&host->rpmb_lock);
+	down(&host->rpmb_sem);
 	for (i = 0; i < 3; i++) {
 		if (cmd[i].nframes == 0)
 			break;
@@ -483,7 +488,7 @@ int ufs_mtk_ioctl_rpmb(struct ufs_hba *hba, const void __user *buf_user)
 
 		frames += cmd[i].nframes;
 	}
-	mutex_unlock(&host->rpmb_lock);
+	up(&host->rpmb_sem);
 
 	kfree(frame_buf);
 
@@ -541,6 +546,9 @@ static void ufs_mtk_parse_dt(struct ufs_mtk_host *host)
 		host->qos_allowed = true;
 		host->qos_enabled = true;
 	}
+
+	if (of_property_read_bool(dev->of_node, "mediatek,ufs-bkops"))
+		hba->caps |= UFSHCD_CAP_AUTO_BKOPS_SUSPEND;
 }
 
 void ufs_mtk_cfg_unipro_cg(struct ufs_hba *hba, bool enable)
@@ -975,11 +983,6 @@ int ufs_mtk_perf_heurisic_if_allow_cmd(struct ufs_hba *hba, struct scsi_cmnd *cm
 	if (!ufs_mtk_has_ufshci_perf_heuristic(hba))
 		return 0;
 
-	if (!hba->outstanding_reqs) {
-		hba->ufs_mtk_qcmd_w_cmd_cnt = 0;
-		hba->ufs_mtk_qcmd_r_cmd_cnt = 0;
-	}
-
 	/* Check rw commands only and allow all other commands. */
 	if (ufs_mtk_is_data_cmd(cmd, true)) {
 
@@ -1263,6 +1266,12 @@ static int ufs_mtk_setup_clocks(struct ufs_hba *hba, bool on,
 		ufs_mtk_perf_setup(host, true);
 		if (host && host->qos_enabled)
 			ufs_mtk_biolog_clk_gating(false);
+		if(ufs_mtk_has_ufshci_perf_heuristic(hba)) {
+			if (!hba->outstanding_reqs) {
+				hba->ufs_mtk_qcmd_w_cmd_cnt = 0;
+				hba->ufs_mtk_qcmd_r_cmd_cnt = 0;
+			}
+		}
 	}
 
 out:
@@ -1474,12 +1483,7 @@ static int ufs_mtk_pre_pwr_change(struct ufs_hba *hba,
 			adapt_val = PA_INITIAL_ADAPT;
 		else
 			adapt_val = PA_NO_ADAPT;
-#ifndef CONFIG_MACH_MT6877
-		// TODO: temporary disable the action to avoid boot fail for MT6877
-		ufshcd_dme_set(hba,
-					UIC_ARG_MIB(PA_TXHSADAPTTYPE),
-					adapt_val);
-#endif
+		ufshcd_dme_set(hba, UIC_ARG_MIB(PA_TXHSADAPTTYPE), adapt_val);
 	}
 	return ret;
 }
@@ -2060,9 +2064,38 @@ static int ufs_mtk_remove(struct platform_device *pdev)
 	return 0;
 }
 
+int ufs_mtk_pltfrm_suspend(struct device *dev)
+{
+	int ret;
+	struct ufs_hba *hba = dev_get_drvdata(dev);
+	struct ufs_mtk_host *host = ufshcd_get_variant(hba);
+
+	if (down_trylock(&host->rpmb_sem))
+		return -EBUSY;
+
+	ret = ufshcd_pltfrm_suspend(dev);
+	if (ret)
+		up(&host->rpmb_sem);
+
+	return ret;
+}
+
+int ufs_mtk_pltfrm_resume(struct device *dev)
+{
+	int ret;
+	struct ufs_hba *hba = dev_get_drvdata(dev);
+	struct ufs_mtk_host *host = ufshcd_get_variant(hba);
+
+	ret = ufshcd_pltfrm_resume(dev);
+	if (!ret)
+		up(&host->rpmb_sem);
+
+	return ret;
+}
+
 static const struct dev_pm_ops ufs_mtk_pm_ops = {
-	.suspend         = ufshcd_pltfrm_suspend,
-	.resume          = ufshcd_pltfrm_resume,
+	.suspend         = ufs_mtk_pltfrm_suspend,
+	.resume          = ufs_mtk_pltfrm_resume,
 	.runtime_suspend = ufshcd_pltfrm_runtime_suspend,
 	.runtime_resume  = ufshcd_pltfrm_runtime_resume,
 	.runtime_idle    = ufshcd_pltfrm_runtime_idle,

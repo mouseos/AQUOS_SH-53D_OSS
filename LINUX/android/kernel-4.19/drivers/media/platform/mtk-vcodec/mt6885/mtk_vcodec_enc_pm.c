@@ -105,8 +105,11 @@ struct temp_job *new_job_from_info(struct mtk_vcodec_ctx *ctx, int core_id)
 		return 0;
 
 	dev = ctx->dev;
-	if (dev == 0)
+	if (dev == 0) {
+		if (new_job != 0)
+			kfree(new_job);
 		return 0;
+	}
 
 	new_job->ctx_id = ctx->id;
 	new_job->format = ctx->q_data[MTK_Q_DATA_DST].fmt->fourcc;

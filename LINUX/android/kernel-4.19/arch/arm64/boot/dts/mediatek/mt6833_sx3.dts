@@ -461,6 +461,7 @@
 			max-brightness = <255>;
 			led-bits = <8>;
 			pwm-names = "lcd-backlight";
+			proj = "SX3";
 		};
 	};
 
@@ -6148,6 +6149,7 @@
 		apple_1_0a_charger_current = <650000>;
 		apple_2_1a_charger_current = <800000>;
 		ta_ac_charger_current = <3000000>;
+		pd_charger_current = <2611000>; //PD (battery current)
 
 		/* sw jeita */
 		jeita_temp_above_t4_cv = <4100000>;
@@ -6156,6 +6158,9 @@
 		jeita_temp_t1_to_t2_cv = <4400000>;
 		jeita_temp_t0_to_t1_cv = <4400000>;
 		jeita_temp_below_t0_cv = <4400000>;
+		jeita_temp_t3_to_t4_bat_cur = <1865000>;
+		jeita_temp_t2_to_t3_bat_cur = <2611000>;
+		jeita_temp_t1_to_t2_bat_cur = <746000>;
 		temp_t4_thres = <55>;
 		temp_t4_thres_minus_x_degree = <53>;
 		temp_t3_thres = <45>;

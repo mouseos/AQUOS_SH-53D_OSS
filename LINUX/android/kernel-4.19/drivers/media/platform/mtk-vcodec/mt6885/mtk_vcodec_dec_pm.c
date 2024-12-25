@@ -901,6 +901,24 @@ void mtk_vdec_dvfs_begin(struct mtk_vcodec_ctx *ctx, int hw_id)
 		vdec_req_freq[hw_id] = target_freq_64;
 	}
 
+	if ((ctx->dec_params.operating_rate == 120) &&
+		((ctx->q_data[MTK_Q_DATA_DST].coded_width *
+		ctx->q_data[MTK_Q_DATA_DST].coded_height) >= 1920*1080) &&
+		ctx->q_data[MTK_Q_DATA_SRC].fmt->fourcc == V4L2_PIX_FMT_AV1) {
+		vdec_req_freq[hw_id] = 546;
+	}
+	if (((ctx->q_data[MTK_Q_DATA_DST].coded_width *
+		ctx->q_data[MTK_Q_DATA_DST].coded_height) >= 3840*2160) &&
+		ctx->q_data[MTK_Q_DATA_SRC].fmt->fourcc == V4L2_PIX_FMT_VP9) {
+		vdec_req_freq[hw_id] = 546;
+	}
+	if (((ctx->q_data[MTK_Q_DATA_DST].coded_width *
+		ctx->q_data[MTK_Q_DATA_DST].coded_height) >= 1920*1080) &&
+		ctx->q_data[MTK_Q_DATA_SRC].fmt->fourcc == V4L2_PIX_FMT_MPEG4 &&
+		ctx->dec_params.operating_rate == 60) {
+		vdec_req_freq[hw_id] = 416;
+	}
+
 	if (dev->dec_cnt > 5)
 		vdec_req_freq[hw_id] = 546;
 
@@ -1068,6 +1086,11 @@ void mtk_vdec_emi_bw_begin(struct mtk_vcodec_ctx *ctx, int hw_id)
 			emi_bw_input = 30 * vdec_freq / STD_VDEC_FREQ;
 			emi_bw = emi_bw * vp9_frm_scale[f_type] /
 					(2 * STD_VDEC_FREQ);
+			if ((ctx->q_data[MTK_Q_DATA_DST].coded_width *
+				ctx->q_data[MTK_Q_DATA_DST].coded_height) >= 3840*2160) {
+				emi_bw_output = emi_bw_output * 28 / 25;
+				emi_bw = emi_bw * 28 / 25;
+			}
 			break;
 		case V4L2_PIX_FMT_AV1:
 			emi_bw_input = 30 * vdec_freq / STD_VDEC_FREQ;

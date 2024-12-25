@@ -16,6 +16,12 @@ config FIH_SX3
 	help
 	  support fih_sx3
 
+config FIH_SX4
+	bool "fih_sx4"
+	default n
+	help
+	  support fih_sx4
+
 config FIH_BINF
 	bool "fih_binf"
 	depends on FIH

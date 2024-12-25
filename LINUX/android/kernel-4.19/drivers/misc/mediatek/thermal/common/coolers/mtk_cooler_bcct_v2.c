@@ -930,7 +930,7 @@ static unsigned long cl_abcct_lcmoff_state;
 static struct chrlmt_handle abcct_lcmoff_chrlmt_handle;
 static long abcct_lcmoff_prev_temp;
 static long abcct_lcmoff_curr_temp;
-static long abcct_lcmoff_target_temp = 48000;
+static long abcct_lcmoff_target_temp = 49000;
 static long abcct_lcmoff_kp = 1000;
 static long abcct_lcmoff_ki = 3000;
 static long abcct_lcmoff_kd = 10000;
@@ -1014,15 +1014,15 @@ struct thermal_cooling_device *cdev, unsigned long temp)
 	pterm = abcct_lcmoff_target_temp - abcct_lcmoff_curr_temp;
 
 	abcct_lcmoff_iterm += pterm;
-	if (((abcct_lcmoff_curr_temp < abcct_target_temp)
+	if (((abcct_lcmoff_curr_temp < abcct_lcmoff_target_temp)
 		&& (abcct_lcmoff_iterm < 0))
-	|| ((abcct_lcmoff_curr_temp > abcct_target_temp)
+	|| ((abcct_lcmoff_curr_temp > abcct_lcmoff_target_temp)
 		&& (abcct_lcmoff_iterm > 0)))
 		abcct_lcmoff_iterm = 0;
 
-	if (((abcct_lcmoff_curr_temp < abcct_target_temp)
+	if (((abcct_lcmoff_curr_temp < abcct_lcmoff_target_temp)
 		&& (abcct_lcmoff_curr_temp < abcct_lcmoff_prev_temp))
-	|| ((abcct_lcmoff_curr_temp > abcct_target_temp)
+	|| ((abcct_lcmoff_curr_temp > abcct_lcmoff_target_temp)
 		&& (abcct_lcmoff_curr_temp > abcct_lcmoff_prev_temp)))
 		dterm = abcct_lcmoff_prev_temp - abcct_lcmoff_curr_temp;
 	else

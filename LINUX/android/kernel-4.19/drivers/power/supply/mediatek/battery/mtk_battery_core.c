@@ -2933,6 +2933,13 @@ void fg_daemon_send_data(
 			}
 
 			ptr = (char *)&gm.fg_data;
+			if ((prcv->idx + prcv->size) >
+				sizeof(struct fgd_cmd_param_t_custom)) {
+				bm_err("size is different %d size %d idx %d\n",
+					(int)sizeof(struct fgd_cmd_param_t_custom),
+					prcv->size, prcv->idx);
+				return;
+			}
 			memcpy(&ptr[prcv->idx],
 				prcv->input,
 				prcv->size);
@@ -2972,7 +2979,6 @@ void fg_daemon_get_data(
 		prcv->total_size,
 		prcv->size,
 		prcv->idx);
-
 		pret->type = prcv->type;
 		pret->total_size = prcv->total_size;
 		pret->size = prcv->size;
@@ -2983,16 +2989,12 @@ void fg_daemon_get_data(
 	case FUEL_GAUGE_TABLE_CUSTOM_DATA:
 		{
 			char *ptr;
-
-			if (sizeof(struct fuel_gauge_table_custom_data)
-				!= prcv->total_size) {
-				bm_err("size is different %d %d\n",
-				(int)sizeof(
-				struct fuel_gauge_table_custom_data),
-				prcv->total_size);
-			}
-
 			ptr = (char *)&fg_table_cust_data;
+			if ((prcv->idx + prcv->size) > sizeof(struct fgd_cmd_param_t_custom)) {
+				bm_err("size is different size %d idx %d  struct size %d",
+					pret->size, pret->idx, (int)sizeof(struct fgd_cmd_param_t_custom));
+				return;
+			}
 			memcpy(pret->input, &ptr[prcv->idx], pret->size);
 			bm_debug(
 				"FG_DATA_TYPE_TABLE type:%d size:%d %d idx:%d\n",
@@ -3289,14 +3291,35 @@ int sharp_customized_uisoc(int mtk_uisoc){
 				new_ui_soc = (8050 + 66*(mtk_uisoc - 70))/100;
 				bm_err("[mtk_battery_core] sharp_uisoc = %d , mtk_uisoc = %d",new_ui_soc,mtk_uisoc);
 			}else if(mtk_uisoc< 70 && mtk_uisoc>=40){
-				new_ui_soc = (4550 +116*(mtk_uisoc - 40))/100;
+				new_ui_soc = (4250 +126*(mtk_uisoc - 40))/100;
 				bm_err("[mtk_battery_core] sharp_uisoc = %d  mtk_uisoc = %d",new_ui_soc,mtk_uisoc);
 			}else if(mtk_uisoc< 40 && mtk_uisoc>=20){
-				new_ui_soc = (2050 + 125*(mtk_uisoc - 20))/100;
+				new_ui_soc = (2050 + 110*(mtk_uisoc - 20))/100;
 				bm_err("[mtk_battery_core] sharp_uisoc = %d , mtk_uisoc = %d",new_ui_soc,mtk_uisoc);
 			}else{
 				new_ui_soc = mtk_uisoc ;
 				bm_err("[mtk_battery_core] sharp_uisoc = %d , mtk_uisoc = %d",new_ui_soc,mtk_uisoc);
+			}	
+	return new_ui_soc;
+}
+
+int sharp_customized_uisoc_sx4(int mtk_uisoc){
+	int new_ui_soc;
+	if(mtk_uisoc == 100){
+				new_ui_soc = mtk_uisoc ;
+				bm_err("[mtk_battery_core_sx4] sharp_uisoc = %d , mtk_uisoc = %d",new_ui_soc,mtk_uisoc);
+			}else if(mtk_uisoc< 99 &&mtk_uisoc >= 70){
+				new_ui_soc = (8050 + 66*(mtk_uisoc - 70))/100;
+				bm_err("[mtk_battery_core_sx4] sharp_uisoc = %d , mtk_uisoc = %d",new_ui_soc,mtk_uisoc);
+			}else if(mtk_uisoc< 70 && mtk_uisoc>=45){
+				new_ui_soc = (5050 +120*(mtk_uisoc - 45))/100;
+				bm_err("[mtk_battery_core_sx4] sharp_uisoc = %d  mtk_uisoc = %d",new_ui_soc,mtk_uisoc);
+			}else if(mtk_uisoc< 45 && mtk_uisoc>=20){
+				new_ui_soc = (2050 + 120*(mtk_uisoc - 20))/100;
+				bm_err("[mtk_battery_core_sx4] sharp_uisoc = %d , mtk_uisoc = %d",new_ui_soc,mtk_uisoc);
+			}else{
+				new_ui_soc = mtk_uisoc ;
+				bm_err("[mtk_battery_core_sx4] sharp_uisoc = %d , mtk_uisoc = %d",new_ui_soc,mtk_uisoc);
 			}	
 	return new_ui_soc;
 }
@@ -3589,7 +3612,10 @@ void bmd_ctrl_cmd_from_user(void *nl_data, struct fgd_nl_msg_t *ret_msg)
 			bm_err("[fr] data len:%d custom data length = %d\n",
 				(int)sizeof(fg_cust_data),
 				ret_msg->fgd_data_len);
-
+			if (ret_msg->fgd_ret_data_len > (int)sizeof(fg_cust_data)) {
+				bm_err("[fr] The size of data receive is not applicable to copy");
+				break;
+			}
 			memcpy(ret_msg->fgd_data,
 				&fg_cust_data, sizeof(fg_cust_data));
 			ret_msg->fgd_data_len += sizeof(fg_cust_data);
@@ -3686,7 +3712,10 @@ void bmd_ctrl_cmd_from_user(void *nl_data, struct fgd_nl_msg_t *ret_msg)
 		int fg_coulomb = 0;
 
 		fg_coulomb = gauge_get_coulomb();
-
+		if (((int)sizeof(msg->fgd_data[0])) == 0) {
+			bm_err("[fr] FG_DAEMON_CMD_SET_FG_BAT_INT1_GAP msg data is not filled");
+			break;
+		}
 		memcpy(&gm.fg_bat_int1_gap,
 			&msg->fgd_data[0], sizeof(gm.fg_bat_int1_gap));
 
@@ -4395,14 +4424,21 @@ void bmd_ctrl_cmd_from_user(void *nl_data, struct fgd_nl_msg_t *ret_msg)
 				daemon_ui_soc, gm.ui_soc,
 				gm.disableGM30, old_uisoc, diff.tv_sec);
 			gm.uisoc_oldtime = now_time;
-
+			#if defined(CONFIG_FIH_SX4)
+			battery_main.BAT_CAPACITY = sharp_customized_uisoc_sx4(gm.ui_soc);
+			#else 
 			battery_main.BAT_CAPACITY = sharp_customized_uisoc(gm.ui_soc);
+			#endif 
 			battery_update(&battery_main);
 		} else {
 			bm_debug("[fg_res] FG_DAEMON_CMD_SET_KERNEL_UISOC = %d %d GM3:%d\n",
 				daemon_ui_soc, gm.ui_soc, gm.disableGM30);
 			/* ac_update(&ac_main); */
+			#if defined(CONFIG_FIH_SX4)
+			battery_main.BAT_CAPACITY = sharp_customized_uisoc_sx4(gm.ui_soc);
+			#else 
 			battery_main.BAT_CAPACITY = sharp_customized_uisoc(gm.ui_soc);
+			#endif 
 			battery_update(&battery_main);
 		}
 	}
@@ -4515,14 +4551,21 @@ void bmd_ctrl_cmd_from_user(void *nl_data, struct fgd_nl_msg_t *ret_msg)
 
 	case FG_DAEMON_CMD_DUMP_LOG:
 	{
+		int len;
 		gm.proc_subcmd = msg->fgd_subcmd;
 		gm.proc_subcmd_para1 = msg->fgd_subcmd_para1;
+		len = (int)strlen(&msg->fgd_data[0]);
+		bm_err("[fr] FG_DAEMON_CMD_DUMP_LOG %d", len);
 		memset(gm.proc_log, 0, 4096);
-		strncpy(gm.proc_log, &msg->fgd_data[0],
-			strlen(&msg->fgd_data[0]));
-		bm_err("[fr] FG_DAEMON_CMD_DUMP_LOG %d %d %d\n",
-			msg->fgd_subcmd, msg->fgd_subcmd_para1,
-			(int)strlen(&msg->fgd_data[0]));
+		if (len < 4096) {
+			strncpy(gm.proc_log, &msg->fgd_data[0],
+				len);
+			bm_err("[fr] FG_DAEMON_CMD_DUMP_LOG %d %d %d\n",
+				msg->fgd_subcmd, msg->fgd_subcmd_para1,
+				len);
+		} else {
+			bm_err("[fr] FG_DAEMON_CMD_DUMP_LOG size of dump is more than limit");
+		}
 	}
 	break;
 
