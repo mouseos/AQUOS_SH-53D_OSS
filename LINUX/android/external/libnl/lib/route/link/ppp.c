@@ -14,11 +14,13 @@
  * @{
  */
 
-#include <netlink/route/link/ppp.h>
+#include "nl-default.h"
 
-#include <netlink-private/netlink.h>
+#include <netlink/route/link/ppp.h>
 #include <netlink/netlink.h>
-#include <netlink-private/route/link/api.h>
+
+#include "nl-route.h"
+#include "link-api.h"
 
 /** @cond SKIP */
 #define PPP_ATTR_FD		(1<<0)
@@ -204,12 +206,12 @@ int rtnl_link_ppp_get_fd(struct rtnl_link *link, int32_t *fd)
 
 /** @} */
 
-static void __init ppp_init(void)
+static void _nl_init ppp_init(void)
 {
 	rtnl_link_register_info(&ppp_info_ops);
 }
 
-static void __exit ppp_exit(void)
+static void _nl_exit ppp_exit(void)
 {
 	rtnl_link_unregister_info(&ppp_info_ops);
 }

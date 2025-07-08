@@ -3,13 +3,18 @@
  * Copyright (c) 2010-2013 Thomas Graf <tgraf@suug.ch>
  */
 
+%top{
+ #include "nl-default.h"
+}
 %{
- #include <netlink-private/netlink.h>
- #include <netlink-private/tc.h>
+ #include <linux/tc_ematch/tc_em_cmp.h>
+
  #include <netlink/netlink.h>
  #include <netlink/route/cls/ematch.h>
  #include <netlink/route/cls/ematch/cmp.h>
- #include <linux/tc_ematch/tc_em_cmp.h>
+
+ #include "nl-route.h"
+
  #include "ematch_syntax.h"
 
  int ematch_get_column(yyscan_t);

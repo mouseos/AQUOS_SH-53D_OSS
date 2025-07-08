@@ -1,1 +1,0 @@
-obj-$(CONFIG_TOUCHSCREEN_FT5446U) += focaltech_test_ft5446u.o

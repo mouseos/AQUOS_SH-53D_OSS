@@ -123,13 +123,13 @@ public:
    int SaveGPTBackup(const std::string & filename);
    int LoadGPTBackup(const std::string & filename);
    int SaveMBR(void);
-/* SHARP_EXTEND [19-1-1] exfat support Start */
+/* SHARP_EXTEND [19-1-2] exfat support Start */
    /* SPRD: add for for format portable storage @{
    int DestroyGPT(void);
     */
    int DestroyGPT(bool destroyMbr = 0);
    /* @} */
-/* SHARP_EXTEND [19-1-1] exfat support End */
+/* SHARP_EXTEND [19-1-2] exfat support End */
    int DestroyMBR(void);
 
    // Display data....

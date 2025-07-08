@@ -3,6 +3,8 @@
  * Copyright (c) 2010-2011 Thomas Graf <tgraf@suug.ch>
  */
 
+#include "nl-default.h"
+
 #include <netlink/cli/utils.h>
 #include <netlink/cli/tc.h>
 
@@ -47,12 +49,12 @@ static struct nl_cli_tc_module blackhole_module =
 	.tm_parse_argv		= blackhole_parse_argv,
 };
 
-static void __init blackhole_init(void)
+static void _nl_init blackhole_init(void)
 {
 	nl_cli_tc_register(&blackhole_module);
 }
 
-static void __exit blackhole_exit(void)
+static void _nl_exit blackhole_exit(void)
 {
 	nl_cli_tc_unregister(&blackhole_module);
 }

@@ -16,15 +16,19 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
+#include "nl-default.h"
+
+#include <linux/if_tunnel.h>
+
 #include <netlink/netlink.h>
 #include <netlink/attr.h>
 #include <netlink/utils.h>
 #include <netlink/object.h>
 #include <netlink/route/rtnl.h>
 #include <netlink/route/link/ipvti.h>
-#include <netlink-private/route/link/api.h>
-#include <linux/if_tunnel.h>
+
+#include "nl-route.h"
+#include "link-api.h"
 
 #define IPVTI_ATTR_LINK		 (1 << 0)
 #define IPVTI_ATTR_IKEY		 (1 << 1)
@@ -527,12 +531,12 @@ int rtnl_link_ipvti_get_fwmark(struct rtnl_link *link, uint32_t *fwmark)
 	return 0;
 }
 
-static void __init ipvti_init(void)
+static void _nl_init ipvti_init(void)
 {
 	rtnl_link_register_info(&ipvti_info_ops);
 }
 
-static void __exit ipvti_exit(void)
+static void _nl_exit ipvti_exit(void)
 {
 	rtnl_link_unregister_info(&ipvti_info_ops);
 }

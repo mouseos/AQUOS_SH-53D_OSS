@@ -10,13 +10,18 @@
  * @{
  */
 
+#include "nl-default.h"
+
 #include <sys/types.h>
+
 #include <linux/netfilter/nfnetlink_queue.h>
 
-#include <netlink-private/netlink.h>
 #include <netlink/attr.h>
 #include <netlink/netfilter/nfnl.h>
 #include <netlink/netfilter/queue.h>
+
+#include "nl-priv-dynamic-core/nl-core.h"
+#include "nl-priv-dynamic-core/cache-api.h"
 
 struct nl_sock *nfnl_queue_socket_alloc(void)
 {
@@ -232,12 +237,12 @@ static struct nl_cache_ops nfnl_queue_ops = {
 	},
 };
 
-static void __init nfnl_queue_init(void)
+static void _nl_init nfnl_queue_init(void)
 {
 	nl_cache_mngt_register(&nfnl_queue_ops);
 }
 
-static void __exit nfnl_queue_exit(void)
+static void _nl_exit nfnl_queue_exit(void)
 {
 	nl_cache_mngt_unregister(&nfnl_queue_ops);
 }

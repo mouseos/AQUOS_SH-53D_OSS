@@ -68,6 +68,11 @@ import java.util.Locale;
 
 import static org.testng.Assert.assertEquals;
 
+import dalvik.annotation.compat.VersionCodes;
+
+import libcore.test.annotation.NonMts;
+import libcore.test.reasons.NonMtsReasons;
+
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
@@ -94,18 +99,20 @@ public class TCKFormatStyle {
     Object[][] data_formatStyle() {
         return new Object[][] {
                 // Android-changed: date/time patterns changed in new CLDR; adapt to UK locale.
-                {ZonedDateTime.of(LocalDateTime.of(2001, 10, 2, 1, 2, 3), ZONEID_PARIS), FormatStyle.FULL, "Tuesday, 2 October 2001 at 01:02:03 Central European Summer Time Europe/Paris"},
+                {ZonedDateTime.of(LocalDateTime.of(2001, 10, 2, 1, 2, 3), ZONEID_PARIS), FormatStyle.FULL, "Tuesday 2 October 2001 at 01:02:03 Central European Summer Time Europe/Paris"},
                 {ZonedDateTime.of(LocalDateTime.of(2001, 10, 2, 1, 2, 3), ZONEID_PARIS), FormatStyle.LONG, "2 October 2001 at 01:02:03 CEST Europe/Paris"},
                 {ZonedDateTime.of(LocalDateTime.of(2001, 10, 2, 1, 2, 3), ZONEID_PARIS), FormatStyle.MEDIUM, "2 Oct 2001, 01:02:03 Europe/Paris"},
                 {ZonedDateTime.of(LocalDateTime.of(2001, 10, 2, 1, 2, 3), ZONEID_PARIS), FormatStyle.SHORT, "02/10/2001, 01:02 Europe/Paris"},
 
-                {ZonedDateTime.of(LocalDateTime.of(2001, 10, 2, 1, 2, 3), OFFSET_PTWO), FormatStyle.FULL, "Tuesday, 2 October 2001 at 01:02:03 +02:00 +02:00"},
+                {ZonedDateTime.of(LocalDateTime.of(2001, 10, 2, 1, 2, 3), OFFSET_PTWO), FormatStyle.FULL, "Tuesday 2 October 2001 at 01:02:03 +02:00 +02:00"},
                 {ZonedDateTime.of(LocalDateTime.of(2001, 10, 2, 1, 2, 3), OFFSET_PTWO), FormatStyle.LONG, "2 October 2001 at 01:02:03 +02:00 +02:00"},
                 {ZonedDateTime.of(LocalDateTime.of(2001, 10, 2, 1, 2, 3), OFFSET_PTWO), FormatStyle.MEDIUM, "2 Oct 2001, 01:02:03 +02:00"},
                 {ZonedDateTime.of(LocalDateTime.of(2001, 10, 2, 1, 2, 3), OFFSET_PTWO), FormatStyle.SHORT, "02/10/2001, 01:02 +02:00"},
         };
     }
 
+    @NonMts(reason = NonMtsReasons.ICU_VERSION_DEPENDENCY,
+        disabledUntilSdk = VersionCodes.VANILLA_ICE_CREAM)
     @Test(dataProvider = "formatStyle")
     public void test_formatStyle(Temporal temporal, FormatStyle style, String formattedStr) {
         DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();

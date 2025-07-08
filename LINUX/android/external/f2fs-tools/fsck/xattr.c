@@ -17,29 +17,20 @@
 #include "node.h"
 #include "xattr.h"
 
-void *read_all_xattrs(struct f2fs_sb_info *sbi, struct f2fs_node *inode)
+void *read_all_xattrs(struct f2fs_sb_info *sbi, struct f2fs_node *inode,
+			bool sanity_check)
 {
 	struct f2fs_xattr_header *header;
 	void *txattr_addr;
 	u64 inline_size = inline_xattr_size(&inode->i);
 	nid_t xnid = le32_to_cpu(inode->i.i_xattr_nid);
 
-	if (c.func == FSCK && xnid) {
-		struct f2fs_node *node_blk = NULL;
-		struct node_info ni;
-		int ret;
-
-		node_blk = (struct f2fs_node *)calloc(BLOCK_SZ, 1);
-		ASSERT(node_blk != NULL);
-
-		ret = fsck_sanity_check_nid(sbi, xnid, node_blk,
-					F2FS_FT_XATTR, TYPE_XATTR, &ni);
-		free(node_blk);
-		if (ret)
+	if (c.func == FSCK && xnid && sanity_check) {
+		if (fsck_sanity_check_nid(sbi, xnid, F2FS_FT_XATTR, TYPE_XATTR))
 			return NULL;
 	}
 
-	txattr_addr = calloc(inline_size + BLOCK_SZ, 1);
+	txattr_addr = calloc(inline_size + F2FS_BLKSIZE, 1);
 	ASSERT(txattr_addr);
 
 	if (inline_size)
@@ -53,6 +44,9 @@ void *read_all_xattrs(struct f2fs_sb_info *sbi, struct f2fs_node *inode)
 		get_node_info(sbi, xnid, &ni);
 		ret = dev_read_block(txattr_addr + inline_size, ni.blk_addr);
 		ASSERT(ret >= 0);
+		memset(txattr_addr + inline_size + F2FS_BLKSIZE -
+				sizeof(struct node_footer), 0,
+				sizeof(struct node_footer));
 	}
 
 	header = XATTR_HDR(txattr_addr);
@@ -65,11 +59,19 @@ void *read_all_xattrs(struct f2fs_sb_info *sbi, struct f2fs_node *inode)
 	return txattr_addr;
 }
 
-static struct f2fs_xattr_entry *__find_xattr(void *base_addr, int index,
-		size_t len, const char *name)
+static struct f2fs_xattr_entry *__find_xattr(void *base_addr,
+				void *last_base_addr, int index,
+				size_t len, const char *name)
 {
 	struct f2fs_xattr_entry *entry;
+
 	list_for_each_xattr(entry, base_addr) {
+		if ((void *)(entry) + sizeof(__u32) > last_base_addr ||
+			(void *)XATTR_NEXT_ENTRY(entry) > last_base_addr) {
+			MSG(0, "xattr entry crosses the end of xattr space\n");
+			return NULL;
+		}
+
 		if (entry->e_name_index != index)
 			continue;
 		if (entry->e_name_len != len)
@@ -80,7 +82,7 @@ static struct f2fs_xattr_entry *__find_xattr(void *base_addr, int index,
 	return entry;
 }
 
-static void write_all_xattrs(struct f2fs_sb_info *sbi,
+void write_all_xattrs(struct f2fs_sb_info *sbi,
 		struct f2fs_node *inode, __u32 hsize, void *txattr_addr)
 {
 	void *xattr_addr;
@@ -92,6 +94,7 @@ static void write_all_xattrs(struct f2fs_sb_info *sbi,
 	nid_t xnid = le32_to_cpu(inode->i.i_xattr_nid);
 	u64 inline_size = inline_xattr_size(&inode->i);
 	int ret;
+	bool xattrblk_alloced = false;
 
 	memcpy(inline_xattr_addr(&inode->i), txattr_addr, inline_size);
 
@@ -107,11 +110,12 @@ static void write_all_xattrs(struct f2fs_sb_info *sbi,
 		ASSERT(dn.node_blk);
 		xattr_node = dn.node_blk;
 		inode->i.i_xattr_nid = cpu_to_le32(new_nid);
+		xattrblk_alloced = true;
 	} else {
 		set_new_dnode(&dn, inode, NULL, xnid);
 		get_node_info(sbi, xnid, &ni);
 		blkaddr = ni.blk_addr;
-		xattr_node = calloc(BLOCK_SZ, 1);
+		xattr_node = calloc(F2FS_BLKSIZE, 1);
 		ASSERT(xattr_node);
 		ret = dev_read_block(xattr_node, ni.blk_addr);
 		if (ret < 0)
@@ -123,7 +127,8 @@ static void write_all_xattrs(struct f2fs_sb_info *sbi,
 	memcpy(xattr_addr, txattr_addr + inline_size,
 			F2FS_BLKSIZE - sizeof(struct node_footer));
 
-	ret = dev_write_block(xattr_node, blkaddr);
+	ret = xattrblk_alloced ? dev_write_block(xattr_node, blkaddr) :
+		update_block(sbi, xattr_node, &blkaddr, NULL);
 
 free_xattr_node:
 	free(xattr_node);
@@ -135,6 +140,7 @@ int f2fs_setxattr(struct f2fs_sb_info *sbi, nid_t ino, int index, const char *na
 {
 	struct f2fs_node *inode;
 	void *base_addr;
+	void *last_base_addr;
 	struct f2fs_xattr_entry *here, *last;
 	struct node_info ni;
 	int error = 0;
@@ -161,15 +167,22 @@ int f2fs_setxattr(struct f2fs_sb_info *sbi, nid_t ino, int index, const char *na
 	ASSERT(index == F2FS_XATTR_INDEX_SECURITY);
 
 	get_node_info(sbi, ino, &ni);
-	inode = calloc(BLOCK_SZ, 1);
+	inode = calloc(F2FS_BLKSIZE, 1);
 	ASSERT(inode);
 	ret = dev_read_block(inode, ni.blk_addr);
 	ASSERT(ret >= 0);
 
-	base_addr = read_all_xattrs(sbi, inode);
+	base_addr = read_all_xattrs(sbi, inode, true);
 	ASSERT(base_addr);
 
-	here = __find_xattr(base_addr, index, len, name);
+	last_base_addr = (void *)base_addr + XATTR_SIZE(&inode->i);
+
+	here = __find_xattr(base_addr, last_base_addr, index, len, name);
+	if (!here) {
+		MSG(0, "Need to run fsck due to corrupted xattr.\n");
+		error = -EINVAL;
+		goto exit;
+	}
 
 	found = IS_XATTR_LAST_ENTRY(here) ? 0 : 1;
 
@@ -240,7 +253,7 @@ int f2fs_setxattr(struct f2fs_sb_info *sbi, nid_t ino, int index, const char *na
 	write_all_xattrs(sbi, inode, new_hsize, base_addr);
 
 	/* inode need update */
-	ASSERT(write_inode(inode, ni.blk_addr) >= 0);
+	ASSERT(update_inode(sbi, inode, &ni.blk_addr) >= 0);
 exit:
 	free(inode);
 	free(base_addr);

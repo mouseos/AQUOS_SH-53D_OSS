@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 #
 # Copyright 2016 The Android Open Source Project
 #
@@ -18,8 +18,6 @@ import ctypes
 import errno
 import os
 import socket
-import subprocess
-import tempfile
 import unittest
 
 import bpf
@@ -40,6 +38,7 @@ from bpf import BPF_FUNC_map_lookup_elem
 from bpf import BPF_FUNC_map_update_elem
 from bpf import BPF_FUNC_skb_change_head
 from bpf import BPF_JNE
+from bpf import BPF_MAP_TYPE_ARRAY
 from bpf import BPF_MAP_TYPE_HASH
 from bpf import BPF_PROG_TYPE_CGROUP_SKB
 from bpf import BPF_PROG_TYPE_CGROUP_SOCK
@@ -67,7 +66,9 @@ from bpf import BpfMov64Reg
 from bpf import BpfProgAttach
 from bpf import BpfProgAttachSocket
 from bpf import BpfProgDetach
+from bpf import BpfProgGetFdById
 from bpf import BpfProgLoad
+from bpf import BpfProgQuery
 from bpf import BpfRawInsn
 from bpf import BpfStMem
 from bpf import BpfStxMem
@@ -79,30 +80,14 @@ from bpf import LookupMap
 from bpf import UpdateMap
 import csocket
 import net_test
-from net_test import LINUX_VERSION
 import sock_diag
 
 libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
 
-HAVE_EBPF_ACCOUNTING = bpf.HAVE_EBPF_4_9
-HAVE_EBPF_SOCKET = bpf.HAVE_EBPF_4_14
-
-# bpf_ktime_get_ns() was made non-GPL requiring in 5.8 and at the same time
-# bpf_ktime_get_boot_ns() was added, both of these changes were backported to
-# Android Common Kernel in 4.14.221, 4.19.175, 5.4.97.
-# As such we require 4.14.222+ 4.19.176+ 5.4.98+ 5.8.0+,
-# but since we only really care about LTS releases:
-HAVE_EBPF_KTIME_GET_NS_APACHE2 = (
-    ((LINUX_VERSION > (4, 14, 221)) and (LINUX_VERSION < (4, 19, 0))) or
-    ((LINUX_VERSION > (4, 19, 175)) and (LINUX_VERSION < (5, 4, 0))) or
-    (LINUX_VERSION > (5, 4, 97))
-)
-HAVE_EBPF_KTIME_GET_BOOT_NS = HAVE_EBPF_KTIME_GET_NS_APACHE2
-
-KEY_SIZE = 8
+KEY_SIZE = 4
 VALUE_SIZE = 4
 TOTAL_ENTRIES = 20
-TEST_UID = 54321
+TEST_UID = 5432
 TEST_GID = 12345
 # Offset to store the map key in stack register REG10
 key_offset = -8
@@ -129,19 +114,23 @@ def PrintMapInfo(map_fd):
 def SocketUDPLoopBack(packet_count, version, prog_fd):
   family = {4: socket.AF_INET, 6: socket.AF_INET6}[version]
   sock = socket.socket(family, socket.SOCK_DGRAM, 0)
-  if prog_fd is not None:
-    BpfProgAttachSocket(sock.fileno(), prog_fd)
-  net_test.SetNonBlocking(sock)
-  addr = {4: "127.0.0.1", 6: "::1"}[version]
-  sock.bind((addr, 0))
-  addr = sock.getsockname()
-  sockaddr = csocket.Sockaddr(addr)
-  for _ in range(packet_count):
-    sock.sendto("foo", addr)
-    data, retaddr = csocket.Recvfrom(sock, 4096, 0)
-    assert "foo" == data
-    assert sockaddr == retaddr
-  return sock
+  try:
+    if prog_fd is not None:
+      BpfProgAttachSocket(sock.fileno(), prog_fd)
+    net_test.SetNonBlocking(sock)
+    addr = {4: "127.0.0.1", 6: "::1"}[version]
+    sock.bind((addr, 0))
+    addr = sock.getsockname()
+    sockaddr = csocket.Sockaddr(addr)
+    for _ in range(packet_count):
+      sock.sendto(b"foo", addr)
+      data, retaddr = csocket.Recvfrom(sock, 4096, 0)
+      assert b"foo" == data
+      assert sockaddr == retaddr
+    return sock
+  except Exception as e:
+    sock.close()
+    raise e
 
 
 # The main code block for eBPF packet counting program. It takes a preloaded
@@ -217,23 +206,24 @@ INS_BPF_PARAM_STORE = [
 ]
 
 
-@unittest.skipUnless(HAVE_EBPF_ACCOUNTING,
-                     "BPF helper function is not fully supported")
 class BpfTest(net_test.NetworkTest):
 
   def setUp(self):
     super(BpfTest, self).setUp()
-    self.map_fd = -1
-    self.prog_fd = -1
+    self.map_fd = None
+    self.prog_fd = None
     self.sock = None
 
   def tearDown(self):
-    if self.prog_fd >= 0:
+    if self.prog_fd is not None:
       os.close(self.prog_fd)
-    if self.map_fd >= 0:
+      self.prog_fd = None
+    if self.map_fd is not None:
       os.close(self.map_fd)
+      self.map_fd = None
     if self.sock:
       self.sock.close()
+      self.sock = None
     super(BpfTest, self).tearDown()
 
   def testCreateMap(self):
@@ -281,6 +271,13 @@ class BpfTest(net_test.NetworkTest):
     key = first_key.value
     self.CheckAllMapEntry(key, TOTAL_ENTRIES - 1, value)
 
+  def testArrayNonZeroOffset(self):
+    self.map_fd = CreateMap(BPF_MAP_TYPE_ARRAY, KEY_SIZE, VALUE_SIZE, 2)
+    key = 1
+    value = 123
+    UpdateMap(self.map_fd, key, value)
+    self.assertEqual(value, LookupMap(self.map_fd, key).value)
+
   def testRdOnlyMap(self):
     self.map_fd = CreateMap(BPF_MAP_TYPE_HASH, KEY_SIZE, VALUE_SIZE,
                             TOTAL_ENTRIES, map_flags=BPF_F_RDONLY)
@@ -304,8 +301,8 @@ class BpfTest(net_test.NetworkTest):
     ]
     instructions += INS_SK_FILTER_ACCEPT
     self.prog_fd = BpfProgLoad(BPF_PROG_TYPE_SOCKET_FILTER, instructions)
-    SocketUDPLoopBack(1, 4, self.prog_fd)
-    SocketUDPLoopBack(1, 6, self.prog_fd)
+    SocketUDPLoopBack(1, 4, self.prog_fd).close()
+    SocketUDPLoopBack(1, 6, self.prog_fd).close()
 
   def testPacketBlock(self):
     self.prog_fd = BpfProgLoad(BPF_PROG_TYPE_SOCKET_FILTER, INS_BPF_EXIT_BLOCK)
@@ -327,8 +324,8 @@ class BpfTest(net_test.NetworkTest):
                      + INS_SK_FILTER_ACCEPT)
     self.prog_fd = BpfProgLoad(BPF_PROG_TYPE_SOCKET_FILTER, instructions)
     packet_count = 10
-    SocketUDPLoopBack(packet_count, 4, self.prog_fd)
-    SocketUDPLoopBack(packet_count, 6, self.prog_fd)
+    SocketUDPLoopBack(packet_count, 4, self.prog_fd).close()
+    SocketUDPLoopBack(packet_count, 6, self.prog_fd).close()
     self.assertEqual(packet_count * 2, LookupMap(self.map_fd, key).value)
 
   ##############################################################################
@@ -350,8 +347,6 @@ class BpfTest(net_test.NetworkTest):
   #   net: bpf: Allow TC programs to call BPF_FUNC_skb_change_head
   #   commit 6f3f65d80dac8f2bafce2213005821fccdce194c
   #
-  @unittest.skipUnless(bpf.HAVE_EBPF_4_14,
-                       "no bpf_skb_change_head() support for pre-4.14 kernels")
   def testSkbChangeHead(self):
     # long bpf_skb_change_head(struct sk_buff *skb, u32 len, u64 flags)
     instructions = [
@@ -383,8 +378,6 @@ class BpfTest(net_test.NetworkTest):
   # 5.4:  https://android-review.googlesource.com/c/kernel/common/+/1355422
   #       commit 45217b91eaaa3a563247c4f470f4cb785de6b1c6
   #
-  @unittest.skipUnless(HAVE_EBPF_KTIME_GET_NS_APACHE2,
-                       "no bpf_ktime_get_ns() support for non-GPL programs")
   def testKtimeGetNsApache2(self):
     instructions = [BpfFuncCall(BPF_FUNC_ktime_get_ns)] + INS_BPF_EXIT_BLOCK
     self.prog_fd = BpfProgLoad(BPF_PROG_TYPE_SCHED_CLS, instructions,
@@ -406,8 +399,6 @@ class BpfTest(net_test.NetworkTest):
   # 5.4:  https://android-review.googlesource.com/c/kernel/common/+/1585252
   #       commit 57b3f4830fb66a6038c4c1c66ca2e138fe8be231
   #
-  @unittest.skipUnless(HAVE_EBPF_KTIME_GET_BOOT_NS,
-                       "no bpf_ktime_get_boot_ns() support")
   def testKtimeGetBootNs(self):
     instructions = [
         BpfFuncCall(BPF_FUNC_ktime_get_boot_ns),
@@ -415,6 +406,44 @@ class BpfTest(net_test.NetworkTest):
     self.prog_fd = BpfProgLoad(BPF_PROG_TYPE_SCHED_CLS, instructions,
                                b"Apache 2.0")
     # No exceptions? Good.
+
+  ##############################################################################
+  #
+  # Test for presence of upstream 5.14 kernel patches:
+  #
+  # Android12-5.10:
+  #   UPSTREAM: net: initialize net->net_cookie at netns setup
+  #   https://android-review.git.corp.google.com/c/kernel/common/+/2503195
+  #
+  #   UPSTREAM: net: retrieve netns cookie via getsocketopt
+  #   https://android-review.git.corp.google.com/c/kernel/common/+/2503056
+  #
+  # (and potentially if you care about kernel ABI)
+  #
+  #   ANDROID: fix ABI by undoing atomic64_t -> u64 type conversion
+  #   https://android-review.git.corp.google.com/c/kernel/common/+/2504335
+  #
+  # Android13-5.10:
+  #   UPSTREAM: net: initialize net->net_cookie at netns setup
+  #   https://android-review.git.corp.google.com/c/kernel/common/+/2503795
+  #
+  #   UPSTREAM: net: retrieve netns cookie via getsocketopt
+  #   https://android-review.git.corp.google.com/c/kernel/common/+/2503796
+  #
+  # (and potentially if you care about kernel ABI)
+  #
+  #   ANDROID: fix ABI by undoing atomic64_t -> u64 type conversion
+  #   https://android-review.git.corp.google.com/c/kernel/common/+/2506895
+  #
+  @unittest.skipUnless(bpf.HAVE_SO_NETNS_COOKIE, "no SO_NETNS_COOKIE support")
+  def testGetNetNsCookie(self):
+    sk = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, 0)
+    sizeof_u64 = 8
+    cookie = sk.getsockopt(socket.SOL_SOCKET, bpf.SO_NETNS_COOKIE, sizeof_u64)
+    sk.close()
+    self.assertEqual(len(cookie), 8)
+    cookie = int.from_bytes(cookie, "little")
+    self.assertGreaterEqual(cookie, 0)
 
   def testGetSocketCookie(self):
     self.map_fd = CreateMap(BPF_MAP_TYPE_HASH, KEY_SIZE, VALUE_SIZE,
@@ -455,60 +484,71 @@ class BpfTest(net_test.NetworkTest):
     uid = TEST_UID
     with net_test.RunAsUid(uid):
       self.assertRaisesErrno(errno.ENOENT, LookupMap, self.map_fd, uid)
-      SocketUDPLoopBack(packet_count, 4, self.prog_fd)
+      SocketUDPLoopBack(packet_count, 4, self.prog_fd).close()
       self.assertEqual(packet_count, LookupMap(self.map_fd, uid).value)
       DeleteMap(self.map_fd, uid)
-      SocketUDPLoopBack(packet_count, 6, self.prog_fd)
+      SocketUDPLoopBack(packet_count, 6, self.prog_fd).close()
       self.assertEqual(packet_count, LookupMap(self.map_fd, uid).value)
 
 
-@unittest.skipUnless(HAVE_EBPF_ACCOUNTING,
-                     "Cgroup BPF is not fully supported")
 class BpfCgroupTest(net_test.NetworkTest):
 
   @classmethod
   def setUpClass(cls):
     super(BpfCgroupTest, cls).setUpClass()
-    cls._cg_dir = tempfile.mkdtemp(prefix="cg_bpf-")
-    cmd = "mount -t cgroup2 cg_bpf %s" % cls._cg_dir
-    try:
-      subprocess.check_call(cmd.split())
-    except subprocess.CalledProcessError:
-      # If an exception is thrown in setUpClass, the test fails and
-      # tearDownClass is not called.
-      os.rmdir(cls._cg_dir)
-      raise
-    cls._cg_fd = os.open(cls._cg_dir, os.O_DIRECTORY | os.O_RDONLY)
+    # os.open() throws exception on failure
+    cls._cg_fd = os.open("/sys/fs/cgroup", os.O_DIRECTORY | os.O_RDONLY)
 
   @classmethod
   def tearDownClass(cls):
-    os.close(cls._cg_fd)
-    subprocess.call(("umount %s" % cls._cg_dir).split())
-    os.rmdir(cls._cg_dir)
+    if cls._cg_fd is not None:
+      os.close(cls._cg_fd)
+      cls._cg_fd = None
     super(BpfCgroupTest, cls).tearDownClass()
 
   def setUp(self):
     super(BpfCgroupTest, self).setUp()
-    self.prog_fd = -1
-    self.map_fd = -1
+    self.prog_fd = None
+    self.map_fd = None
+    self.cg_inet_ingress = BpfProgGetFdById(
+        BpfProgQuery(self._cg_fd, BPF_CGROUP_INET_INGRESS, 0, 0))
+    self.cg_inet_egress = BpfProgGetFdById(
+        BpfProgQuery(self._cg_fd, BPF_CGROUP_INET_EGRESS, 0, 0))
+    self.cg_inet_sock_create = BpfProgGetFdById(
+        BpfProgQuery(self._cg_fd, BPF_CGROUP_INET_SOCK_CREATE, 0, 0))
+    if self.cg_inet_ingress:
+      BpfProgDetach(self._cg_fd, BPF_CGROUP_INET_INGRESS)
+    if self.cg_inet_egress:
+      BpfProgDetach(self._cg_fd, BPF_CGROUP_INET_EGRESS)
+    if self.cg_inet_sock_create:
+      BpfProgDetach(self._cg_fd, BPF_CGROUP_INET_SOCK_CREATE)
 
   def tearDown(self):
-    if self.prog_fd >= 0:
+    if self.prog_fd is not None:
       os.close(self.prog_fd)
-    if self.map_fd >= 0:
+      self.prog_fd = None
+    if self.map_fd is not None:
       os.close(self.map_fd)
-    try:
-      BpfProgDetach(self._cg_fd, BPF_CGROUP_INET_EGRESS)
-    except socket.error:
-      pass
-    try:
+      self.map_fd = None
+    if self.cg_inet_ingress is None:
       BpfProgDetach(self._cg_fd, BPF_CGROUP_INET_INGRESS)
-    except socket.error:
-      pass
-    try:
+    else:
+      BpfProgAttach(self.cg_inet_ingress, self._cg_fd, BPF_CGROUP_INET_INGRESS)
+      os.close(self.cg_inet_ingress)
+      self.cg_inet_ingress = None
+    if self.cg_inet_egress is None:
+      BpfProgDetach(self._cg_fd, BPF_CGROUP_INET_EGRESS)
+    else:
+      BpfProgAttach(self.cg_inet_egress, self._cg_fd, BPF_CGROUP_INET_EGRESS)
+      os.close(self.cg_inet_egress)
+      self.cg_inet_egress = None
+    if self.cg_inet_sock_create is None:
       BpfProgDetach(self._cg_fd, BPF_CGROUP_INET_SOCK_CREATE)
-    except socket.error:
-      pass
+    else:
+      BpfProgAttach(self.cg_inet_sock_create, self._cg_fd,
+                    BPF_CGROUP_INET_SOCK_CREATE)
+      os.close(self.cg_inet_sock_create)
+      self.cg_inet_sock_create = None
     super(BpfCgroupTest, self).tearDown()
 
   def testCgroupBpfAttach(self):
@@ -522,8 +562,8 @@ class BpfCgroupTest(net_test.NetworkTest):
     self.assertRaisesErrno(errno.EAGAIN, SocketUDPLoopBack, 1, 4, None)
     self.assertRaisesErrno(errno.EAGAIN, SocketUDPLoopBack, 1, 6, None)
     BpfProgDetach(self._cg_fd, BPF_CGROUP_INET_INGRESS)
-    SocketUDPLoopBack(1, 4, None)
-    SocketUDPLoopBack(1, 6, None)
+    SocketUDPLoopBack(1, 4, None).close()
+    SocketUDPLoopBack(1, 6, None).close()
 
   def testCgroupEgress(self):
     self.prog_fd = BpfProgLoad(BPF_PROG_TYPE_CGROUP_SKB, INS_BPF_EXIT_BLOCK)
@@ -531,8 +571,8 @@ class BpfCgroupTest(net_test.NetworkTest):
     self.assertRaisesErrno(errno.EPERM, SocketUDPLoopBack, 1, 4, None)
     self.assertRaisesErrno(errno.EPERM, SocketUDPLoopBack, 1, 6, None)
     BpfProgDetach(self._cg_fd, BPF_CGROUP_INET_EGRESS)
-    SocketUDPLoopBack(1, 4, None)
-    SocketUDPLoopBack(1, 6, None)
+    SocketUDPLoopBack(1, 4, None).close()
+    SocketUDPLoopBack(1, 6, None).close()
 
   def testCgroupBpfUid(self):
     self.map_fd = CreateMap(BPF_MAP_TYPE_HASH, KEY_SIZE, VALUE_SIZE,
@@ -551,33 +591,40 @@ class BpfCgroupTest(net_test.NetworkTest):
     uid = TEST_UID
     with net_test.RunAsUid(uid):
       self.assertRaisesErrno(errno.ENOENT, LookupMap, self.map_fd, uid)
-      SocketUDPLoopBack(packet_count, 4, None)
+      SocketUDPLoopBack(packet_count, 4, None).close()
       self.assertEqual(packet_count, LookupMap(self.map_fd, uid).value)
       DeleteMap(self.map_fd, uid)
-      SocketUDPLoopBack(packet_count, 6, None)
+      SocketUDPLoopBack(packet_count, 6, None).close()
       self.assertEqual(packet_count, LookupMap(self.map_fd, uid).value)
     BpfProgDetach(self._cg_fd, BPF_CGROUP_INET_INGRESS)
 
-  def checkSocketCreate(self, family, socktype, success):
+  def checkSocketCreate(self, family, socktype, sockproto, success):
     try:
-      sock = socket.socket(family, socktype, 0)
+      sock = socket.socket(family, socktype, sockproto)
       sock.close()
     except socket.error as e:
       if success:
-        self.fail("Failed to create socket family=%d type=%d err=%s" %
-                  (family, socktype, os.strerror(e.errno)))
+        self.fail("Failed to create socket family=%d type=%d proto=%d err=%s" %
+                  (family, socktype, sockproto, os.strerror(e.errno)))
       return
     if not success:
-      self.fail("unexpected socket family=%d type=%d created, should be blocked"
-                % (family, socktype))
+      self.fail("unexpected socket family=%d type=%d proto=%d created, "
+                "should be blocked" % (family, socktype, sockproto))
+
+  def testPfKeySocketCreate(self):
+    # AF_KEY socket type. See include/linux/socket.h.
+    AF_KEY = 15  # pylint: disable=invalid-name
+
+    # PFKEYv2 constants. See include/uapi/linux/pfkeyv2.h.
+    PF_KEY_V2 = 2  # pylint: disable=invalid-name
+
+    self.checkSocketCreate(AF_KEY, socket.SOCK_RAW, PF_KEY_V2, True)
 
   def trySocketCreate(self, success):
     for family in [socket.AF_INET, socket.AF_INET6]:
       for socktype in [socket.SOCK_DGRAM, socket.SOCK_STREAM]:
-        self.checkSocketCreate(family, socktype, success)
+        self.checkSocketCreate(family, socktype, 0, success)
 
-  @unittest.skipUnless(HAVE_EBPF_SOCKET,
-                       "Cgroup BPF socket is not supported")
   def testCgroupSocketCreateBlock(self):
     instructions = [
         BpfFuncCall(BPF_FUNC_get_current_uid_gid),
@@ -585,8 +632,22 @@ class BpfCgroupTest(net_test.NetworkTest):
         BpfJumpImm(BPF_JNE, BPF_REG_0, TEST_UID, 2),
     ]
     instructions += INS_BPF_EXIT_BLOCK + INS_CGROUP_ACCEPT
+
+    fd = BpfProgGetFdById(
+        BpfProgQuery(self._cg_fd, BPF_CGROUP_INET_SOCK_CREATE, 0, 0))
+    assert fd is None
+
     self.prog_fd = BpfProgLoad(BPF_PROG_TYPE_CGROUP_SOCK, instructions)
     BpfProgAttach(self.prog_fd, self._cg_fd, BPF_CGROUP_INET_SOCK_CREATE)
+
+    fd = BpfProgGetFdById(
+        BpfProgQuery(self._cg_fd, BPF_CGROUP_INET_SOCK_CREATE, 0, 0))
+    assert fd is not None
+    # equality while almost certain is not actually 100% guaranteed:
+    assert fd >= self.prog_fd + 1
+    os.close(fd)
+    fd = None
+
     with net_test.RunAsUid(TEST_UID):
       # Socket creation with target uid should fail
       self.trySocketCreate(False)

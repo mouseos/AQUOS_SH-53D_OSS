@@ -9,11 +9,17 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/tc.h>
+#include "nl-default.h"
+
+#include <sys/stat.h>
+#include <search.h>
+
 #include <netlink/netlink.h>
 #include <netlink/utils.h>
 #include <netlink/route/tc.h>
+
+#include "nl-route.h"
+#include "nl-aux-core/nl-core.h"
 
 struct classid_map
 {
@@ -427,7 +433,7 @@ errout:
 
 /** @} */
 
-static void __init classid_init(void)
+static void _nl_init classid_init(void)
 {
 	int err, i;
 
@@ -444,7 +450,7 @@ static void free_map(void *map)
 	free(map);
 }
 
-static void __exit classid_exit(void)
+static void _nl_exit classid_exit(void)
 {
 	tdestroy(id_root, free_map);
 }

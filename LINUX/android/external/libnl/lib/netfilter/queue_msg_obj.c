@@ -3,11 +3,17 @@
  * Copyright (c) 2007, 2008 Patrick McHardy <kaber@trash.net>
  */
 
-#include <netlink-private/netlink.h>
+#include "nl-default.h"
+
+#include <linux/netfilter.h>
+
 #include <netlink/netfilter/nfnl.h>
 #include <netlink/netfilter/netfilter.h>
 #include <netlink/netfilter/queue_msg.h>
-#include <linux/netfilter.h>
+#include <netlink/route/link.h>
+
+#include "nl-netfilter.h"
+#include "nl-priv-dynamic-core/nl-core.h"
 
 /** @cond SKIP */
 #define QUEUE_MSG_ATTR_GROUP		(1UL << 0)
@@ -372,9 +378,10 @@ uint32_t nfnl_queue_msg_get_physoutdev(const struct nfnl_queue_msg *msg)
 void nfnl_queue_msg_set_hwaddr(struct nfnl_queue_msg *msg, uint8_t *hwaddr,
 			       int len)
 {
-	if (len > sizeof(msg->queue_msg_hwaddr))
+	if (len < 0)
+		len = 0;
+	else if (((unsigned)len) > sizeof(msg->queue_msg_hwaddr))
 		len = sizeof(msg->queue_msg_hwaddr);
-
 	msg->queue_msg_hwaddr_len = len;
 	memcpy(msg->queue_msg_hwaddr, hwaddr, len);
 	msg->ce_mask |= QUEUE_MSG_ATTR_HWADDR;

@@ -42,24 +42,9 @@ static int		tls_options = -1,/* Options for TLS connections */
 static BIO_METHOD *     _httpBIOMethods(void);
 static int              http_bio_write(BIO *h, const char *buf, int num);
 static int              http_bio_read(BIO *h, char *buf, int size);
-static int              http_bio_puts(BIO *h, const char *str);
 static long             http_bio_ctrl(BIO *h, int cmd, long arg1, void *arg2);
-static int              http_bio_new(BIO *h);
-static int              http_bio_free(BIO *data);
 
-static BIO_METHOD	http_bio_methods =
-			{
-			  BIO_TYPE_SSL,
-			  "http",
-			  http_bio_write,
-			  http_bio_read,
-			  http_bio_puts,
-			  NULL, /* http_bio_gets, */
-			  http_bio_ctrl,
-			  http_bio_new,
-			  http_bio_free,
-			  NULL,
-			};
+static BIO_METHOD *	http_bio_methods;
 
 /*
  * 'cupsMakeServerCredentials()' - Make a self-signed certificate and private key pair.
@@ -129,7 +114,7 @@ _httpFreeCredentials(
 static BIO_METHOD *                            /* O - BIO methods for OpenSSL */
 _httpBIOMethods(void)
 {
-  return (&http_bio_methods);
+  return http_bio_methods;
 }
 
 
@@ -149,18 +134,18 @@ http_bio_ctrl(BIO  *h,			/* I - BIO data */
         return (0);
 
     case BIO_CTRL_RESET :
-        h->ptr = NULL;
+        BIO_set_data(h, NULL);
 	return (0);
 
     case BIO_C_SET_FILE_PTR :
-        h->ptr  = arg2;
-	h->init = 1;
+        BIO_set_data(h, arg2);
+	BIO_set_init(h, 1);
 	return (1);
 
     case BIO_C_GET_FILE_PTR :
         if (arg2)
 	{
-	  *((void **)arg2) = h->ptr;
+	  *((void **)arg2) = BIO_get_data(h);
 	  return (1);
 	}
 	else
@@ -170,57 +155,6 @@ http_bio_ctrl(BIO  *h,			/* I - BIO data */
     case BIO_CTRL_FLUSH :
         return (1);
   }
-}
-
-
-/*
- * 'http_bio_free()' - Free OpenSSL data.
- */
-
-static int				/* O - 1 on success, 0 on failure */
-http_bio_free(BIO *h)			/* I - BIO data */
-{
-  if (!h)
-    return (0);
-
-  if (h->shutdown)
-  {
-    h->init  = 0;
-    h->flags = 0;
-  }
-
-  return (1);
-}
-
-
-/*
- * 'http_bio_new()' - Initialize an OpenSSL BIO structure.
- */
-
-static int				/* O - 1 on success, 0 on failure */
-http_bio_new(BIO *h)			/* I - BIO data */
-{
-  if (!h)
-    return (0);
-
-  h->init  = 0;
-  h->num   = 0;
-  h->ptr   = NULL;
-  h->flags = 0;
-
-  return (1);
-}
-
-
-/*
- * 'http_bio_puts()' - Send a string for OpenSSL.
- */
-
-static int				/* O - Bytes written */
-http_bio_puts(BIO        *h,		/* I - BIO data */
-              const char *str)		/* I - String to write */
-{
-  return (send(((http_t *)h->ptr)->fd, str, strlen(str), 0));
 }
 
 
@@ -236,7 +170,7 @@ http_bio_read(BIO  *h,			/* I - BIO data */
   http_t	*http;			/* HTTP connection */
 
 
-  http = (http_t *)h->ptr;
+  http = (http_t *)BIO_get_data(h);
 
   if (!http->blocking)
   {
@@ -268,7 +202,7 @@ http_bio_write(BIO        *h,		/* I - BIO data */
                const char *buf,		/* I - Buffer to write */
 	       int        num)		/* I - Number of bytes to write */
 {
-  return (send(((http_t *)h->ptr)->fd, buf, num, 0));
+  return (send(((http_t *)BIO_get_data(h))->fd, buf, num, 0));
 }
 
 
@@ -280,6 +214,11 @@ void
 _httpTLSInitialize(void)
 {
   SSL_library_init();
+
+  http_bio_methods = BIO_meth_new(BIO_TYPE_SSL, "http");
+  BIO_meth_set_write(http_bio_methods, http_bio_write);
+  BIO_meth_set_read(http_bio_methods, http_bio_read);
+  BIO_meth_set_ctrl(http_bio_methods, http_bio_ctrl);
 }
 
 

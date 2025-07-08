@@ -1,9 +1,11 @@
 %{
-#include <netlink-private/netlink.h>
-#include <netlink-private/tc.h>
+#include "nl-default.h"
+
 #include <netlink/netlink.h>
 #include <netlink/utils.h>
 #include <netlink/route/pktloc.h>
+
+#include "nl-route.h"
 %}
 
 %locations

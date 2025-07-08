@@ -14,6 +14,7 @@ extern "C"
 #include "internal.h"
 
 struct z_erofs_decompress_req {
+	struct erofs_sb_info *sbi;
 	char *in, *out;
 
 	/*
@@ -22,6 +23,9 @@ struct z_erofs_decompress_req {
 	 */
 	unsigned int decodedskip;
 	unsigned int inputsize, decodedlength;
+
+	/* cut point of interlaced uncompressed data */
+	unsigned int interlaced_offset;
 
 	/* indicate the algorithm will be used for decompression */
 	unsigned int alg;

@@ -6,7 +6,6 @@
  *
  * Dual licensed under the GPL or LGPL version 2 licenses.
  */
-#define _LARGEFILE64_SOURCE
 
 #include <f2fs_fs.h>
 #include <stdio.h>
@@ -307,6 +306,7 @@ int f2fs_check_zones(int j)
 
 	dev->zone_cap_blocks = malloc(dev->nr_zones * sizeof(size_t));
 	if (!dev->zone_cap_blocks) {
+		free(rep);
 		ERR_MSG("No memory for zone capacity list.\n");
 		return -ENOMEM;
 	}
@@ -503,6 +503,28 @@ out:
 	return ret;
 }
 
+int f2fs_finish_zone(int i, void *blkzone)
+{
+	struct blk_zone *blkz = (struct blk_zone *)blkzone;
+	struct device_info *dev = c.devices + i;
+	struct blk_zone_range range;
+	int ret;
+
+	if (!blk_zone_seq(blkz) || blk_zone_empty(blkz))
+		return 0;
+
+	/* Non empty sequential zone: finish */
+	range.sector = blk_zone_sector(blkz);
+	range.nr_sectors = blk_zone_length(blkz);
+	ret = ioctl(dev->fd, BLKFINISHZONE, &range);
+	if (ret != 0) {
+		ret = -errno;
+		ERR_MSG("ioctl BLKFINISHZONE failed: errno=%d\n", errno);
+	}
+
+	return ret;
+}
+
 uint32_t f2fs_get_usable_segments(struct f2fs_super_block *sb)
 {
 #ifdef HAVE_BLK_ZONE_REP_V2
@@ -584,6 +606,12 @@ int f2fs_reset_zone(int i, void *UNUSED(blkzone))
 }
 
 int f2fs_reset_zones(int i)
+{
+	ERR_MSG("%d: Unsupported zoned block device\n", i);
+	return -1;
+}
+
+int f2fs_finish_zone(int i, void *UNUSED(blkzone))
 {
 	ERR_MSG("%d: Unsupported zoned block device\n", i);
 	return -1;

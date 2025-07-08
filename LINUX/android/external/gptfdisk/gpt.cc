@@ -1476,13 +1476,13 @@ int GPTData::SaveMBR(void) {
 // This function destroys the on-disk GPT structures, but NOT the on-disk
 // MBR.
 // Returns 1 if the operation succeeds, 0 if not.
-/* SHARP_EXTEND [19-1-1] exfat support Start */
+/* SHARP_EXTEND [19-1-2] exfat support Start */
 /* SPRD: add for for format portable storage @{
 int GPTData::DestroyGPT(void) {
 */
 int GPTData::DestroyGPT(bool destroyMbr) {
 /* @} */
-/* SHARP_EXTEND [19-1-1] exfat support End */
+/* SHARP_EXTEND [19-1-2] exfat support End */
    int sum, tableSize, allOK = 1;
    uint8_t blankSector[512];
    uint8_t* emptyTable;
@@ -1491,7 +1491,7 @@ int GPTData::DestroyGPT(bool destroyMbr) {
    ClearGPTData();
 
    if (myDisk.OpenForWrite()) {
-/* SHARP_EXTEND [19-1-1] exfat support Start */
+/* SHARP_EXTEND [19-1-2] exfat support Start */
       /* SPRD: add for for format portable storage @{ */
       if(destroyMbr) {
          allOK = myDisk.Seek(0) && (myDisk.Write(blankSector, 512) == 512);
@@ -1499,7 +1499,7 @@ int GPTData::DestroyGPT(bool destroyMbr) {
             cerr << "Warning! MBR not overwritten! Error is " << errno << "!\n";
       }
       /* @} */
-/* SHARP_EXTEND [19-1-1] exfat support End */
+/* SHARP_EXTEND [19-1-2] exfat support End */
       if (!myDisk.Seek(mainHeader.currentLBA))
          allOK = 0;
       if (myDisk.Write(blankSector, 512) != 512) { // blank it out

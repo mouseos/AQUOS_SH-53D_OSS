@@ -16,14 +16,16 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/tc.h>
+#include "nl-default.h"
+
 #include <netlink/netlink.h>
-#include <netlink-private/route/tc-api.h>
 #include <netlink/route/classifier.h>
 #include <netlink/route/action.h>
 #include <netlink/route/cls/basic.h>
 #include <netlink/route/cls/ematch.h>
+
+#include "tc-api.h"
+#include "nl-aux-route/nl-route.h"
 
 struct rtnl_basic
 {
@@ -222,12 +224,10 @@ int rtnl_basic_add_action(struct rtnl_cls *cls, struct rtnl_act *act)
 	if (!(b = rtnl_tc_data(TC_CAST(cls))))
 		return -NLE_NOMEM;
 
-	b->b_mask |= BASIC_ATTR_ACTION;
-	if ((err = rtnl_act_append(&b->b_act, act)))
+	if ((err = _rtnl_act_append_get(&b->b_act, act)) < 0)
 		return err;
 
-	/* In case user frees it */
-	rtnl_act_get(act);
+	b->b_mask |= BASIC_ATTR_ACTION;
 	return 0;
 }
 
@@ -282,12 +282,12 @@ static struct rtnl_tc_ops basic_ops = {
 	},
 };
 
-static void __init basic_init(void)
+static void _nl_init basic_init(void)
 {
 	rtnl_tc_register(&basic_ops);
 }
 
-static void __exit basic_exit(void)
+static void _nl_exit basic_exit(void)
 {
 	rtnl_tc_unregister(&basic_ops);
 }

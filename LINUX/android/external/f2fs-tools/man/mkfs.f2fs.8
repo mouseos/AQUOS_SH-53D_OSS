@@ -8,10 +8,6 @@ mkfs.f2fs \- create an F2FS file system
 .SH SYNOPSIS
 .B mkfs.f2fs
 [
-.B \-a
-.I heap-based-allocation
-]
-[
 .B \-c
 .I device-list
 ]
@@ -92,6 +88,10 @@ mkfs.f2fs \- create an F2FS file system
 [
 .B \-V
 ]
+[
+.B \-Z
+.I #-of-reserved-sections
+]
 .I device
 .I [sectors]
 .SH DESCRIPTION
@@ -106,11 +106,17 @@ The exit code returned by
 is 0 on success and 1 on failure.
 .SH OPTIONS
 .TP
-.BI \-a " heap-based-allocation"
+.BI \-a " heap-based-allocation" (deprecated)
 Specify 1 or 0 to enable/disable heap based block allocation policy.
 If the value is equal to 1, each of active log areas are initially
 assigned separately according to the whole volume size.
 The default value is 1.
+.TP
+.BI \-b " block size"
+Specify the block size in bytes. Valid blocksizes are powers of 2.
+Currently, the kernel is only able to mount f2fs filesystems where the
+block size matches the page size.
+The default value is 4096.
 .TP
 .BI \-c " device-list"
 Build f2fs with these additional comma separated devices, so that the user can
@@ -202,6 +208,9 @@ Enable casefolding support in the filesystem. Optional flags can be passed with
 .TP
 .B compression
 Enable support for filesystem level compression. Requires extra attr.
+.TP
+.B ro
+Enable readonly feature to eliminate OVP/SSA on-disk layout for small readonly partition.
 .RE
 .TP
 .BI \-C " encoding:flags"
@@ -264,6 +273,14 @@ Number of sectors. Default is determined by device size.
 .TP
 .BI \-V
 Print the version number and exit.
+.TP
+.BI \-Z " #-of-reserved-sections"
+Specify the number of GC reserved sections for zoned device. If specified
+to non-zero, reserved segments count is set to the larger size between 8
+sections and the input value. If specified to zero, the best number will be
+assigned automatically according to the partition size.
+If overprovision-ratio-percentage is not specified, it will set to default
+3.0%. Without '-m' option, the filesystem doesn't support the feature.
 .TP
 .BI \-h,\ \-\-help
 Print usage and exit.

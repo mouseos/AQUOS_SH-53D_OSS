@@ -10,13 +10,18 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/tc.h>
+#include "nl-default.h"
+
 #include <netlink/netlink.h>
 #include <netlink/attr.h>
 #include <netlink/utils.h>
-#include <netlink-private/route/tc-api.h>
 #include <netlink/route/act/gact.h>
+
+#include "tc-api.h"
+
+struct rtnl_gact {
+	struct tc_gact g_parm;
+};
 
 static struct nla_policy gact_policy[TCA_GACT_MAX + 1] = {
 	[TCA_GACT_PARMS]             = { .minlen = sizeof(struct tc_gact) },
@@ -144,12 +149,12 @@ static struct rtnl_tc_ops gact_ops = {
 	},
 };
 
-static void __init gact_init(void)
+static void _nl_init gact_init(void)
 {
 	rtnl_tc_register(&gact_ops);
 }
 
-static void __exit gact_exit(void)
+static void _nl_exit gact_exit(void)
 {
 	rtnl_tc_unregister(&gact_ops);
 }

@@ -179,9 +179,29 @@ typedef int64_t         s64;
 #define __maybe_unused      __attribute__((__unused__))
 #endif
 
-static inline u32 get_unaligned_le32(const u8 *p)
+#define __packed __attribute__((__packed__))
+
+#define __get_unaligned_t(type, ptr) ({						\
+	const struct { type x; } __packed *__pptr = (typeof(__pptr))(ptr);	\
+	__pptr->x;								\
+})
+
+#define __put_unaligned_t(type, val, ptr) do {					\
+	struct { type x; } __packed *__pptr = (typeof(__pptr))(ptr);		\
+	__pptr->x = (val);							\
+} while (0)
+
+#define get_unaligned(ptr)	__get_unaligned_t(typeof(*(ptr)), (ptr))
+#define put_unaligned(val, ptr) __put_unaligned_t(typeof(*(ptr)), (val), (ptr))
+
+static inline u32 get_unaligned_le32(const void *p)
 {
-	return p[0] | p[1] << 8 | p[2] << 16 | p[3] << 24;
+	return le32_to_cpu(__get_unaligned_t(__le32, p));
+}
+
+static inline void put_unaligned_le32(u32 val, void *p)
+{
+	__put_unaligned_t(__le32, cpu_to_le32(val), p);
 }
 
 /**
@@ -266,6 +286,11 @@ static inline unsigned int fls_long(unsigned long x)
 	return x ? sizeof(x) * 8 - __builtin_clz(x) : 0;
 }
 
+static inline unsigned long lowbit(unsigned long n)
+{
+	return n & -n;
+}
+
 /**
  * __roundup_pow_of_two() - round up to nearest power of two
  * @n: value to round up
@@ -311,11 +336,6 @@ unsigned long __roundup_pow_of_two(unsigned long n)
 #define ST_ATIM_NSEC(stbuf) 0
 #define ST_CTIM_NSEC(stbuf) 0
 #define ST_MTIM_NSEC(stbuf) 0
-#endif
-
-#ifdef __APPLE__
-#define stat64		stat
-#define lstat64		lstat
 #endif
 
 #ifdef __cplusplus

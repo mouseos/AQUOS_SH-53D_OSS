@@ -34,7 +34,7 @@ struct f2fs_fsck gfsck;
 
 INIT_FEATURE_TABLE;
 
-#ifdef WITH_SLOAD
+#if defined(WITH_SLOAD) || defined(WITH_DUMP)
 static char *absolute_path(const char *file)
 {
 	char *ret;
@@ -263,7 +263,7 @@ void f2fs_parse_options(int argc, char *argv[])
 				break;
 			case 'a':
 				c.auto_fix = 1;
-				MSG(0, "Info: Fix the reported corruption.\n");
+				MSG(0, "Info: Automatic fix mode enabled.\n");
 				break;
 			case 'c':
 				c.cache_config.num_cache_entry = atoi(optarg);
@@ -367,7 +367,7 @@ void f2fs_parse_options(int argc, char *argv[])
 					MSG(0, "\tError: Unknown flag %s\n", token);
 					fsck_usage();
 				}
-				c.feature |= cpu_to_le32(F2FS_FEATURE_CASEFOLD);
+				c.feature |= F2FS_FEATURE_CASEFOLD;
 				break;
 			case 'V':
 				show_version(prog);
@@ -384,7 +384,7 @@ void f2fs_parse_options(int argc, char *argv[])
 		}
 	} else if (!strcmp("dump.f2fs", prog)) {
 #ifdef WITH_DUMP
-		const char *option_string = "d:i:I:n:Ms:Sa:b:V";
+		const char *option_string = "d:fi:I:n:Mo:Prs:Sa:b:Vy";
 		static struct dump_option dump_opt = {
 			.nid = 0,	/* default root ino */
 			.start_nat = -1,
@@ -395,6 +395,8 @@ void f2fs_parse_options(int argc, char *argv[])
 			.end_ssa = -1,
 			.blk_addr = -1,
 			.scan_nid = 0,
+			.use_root_nid = 0,
+			.base_path = NULL,
 		};
 
 		c.func = DUMP;
@@ -455,6 +457,24 @@ void f2fs_parse_options(int argc, char *argv[])
 				else
 					ret = sscanf(optarg, "%x",
 							&dump_opt.blk_addr);
+				break;
+			case 'y':
+			case 'f':
+				c.force = 1;
+				break;
+			case 'r':
+				dump_opt.use_root_nid = 1;
+				break;
+			case 'o':
+				dump_opt.base_path = absolute_path(optarg);
+				break;
+			case 'P':
+#if defined(__MINGW32__)
+				MSG(0, "-P not supported for Windows\n");
+				err = EWRONG_OPT;
+#else
+				c.preserve_perms = 1;
+#endif
 				break;
 			case 'V':
 				show_version(prog);
@@ -803,6 +823,7 @@ void f2fs_parse_options(int argc, char *argv[])
 			return;
 	}
 
+	check_block_struct_sizes();
 	/* print out error */
 	switch (err) {
 	case EWRONG_OPT:
@@ -832,6 +853,9 @@ static int do_fsck(struct f2fs_sb_info *sbi)
 	fsck_init(sbi);
 
 	print_cp_state(flag);
+
+	if (c.roll_forward && c.zoned_model == F2FS_ZONED_HM)
+		save_curseg_warm_node_info(sbi);
 
 	fsck_chk_and_fix_write_pointers(sbi);
 
@@ -877,7 +901,7 @@ static int do_fsck(struct f2fs_sb_info *sbi)
 	cbc.cnt = 0;
 	cbc.cheader_pgofs = CHEADER_PGOFS_NONE;
 
-	if (c.feature & cpu_to_le32(F2FS_FEATURE_QUOTA_INO)) {
+	if (c.feature & F2FS_FEATURE_QUOTA_INO) {
 		ret = quota_init_context(sbi);
 		if (ret) {
 			ASSERT_MSG("quota_init_context failure: %d", ret);
@@ -885,6 +909,10 @@ static int do_fsck(struct f2fs_sb_info *sbi)
 		}
 	}
 	fsck_chk_orphan_node(sbi);
+
+	if (fsck_sanity_check_nat(sbi, sbi->root_ino_num))
+		fsck_chk_root_inode(sbi);
+
 	fsck_chk_node_blk(sbi, NULL, sbi->root_ino_num,
 			F2FS_FT_DIR, TYPE_INODE, &blk_cnt, &cbc, NULL);
 	fsck_chk_quota_files(sbi);
@@ -906,6 +934,9 @@ static void do_dump(struct f2fs_sb_info *sbi)
 	struct f2fs_checkpoint *ckpt = F2FS_CKPT(sbi);
 	u32 flag = le32_to_cpu(ckpt->ckpt_flags);
 
+	if (opt->use_root_nid)
+		opt->nid = sbi->root_ino_num;
+
 	if (opt->end_nat == -1)
 		opt->end_nat = NM_I(sbi)->max_nid;
 	if (opt->end_sit == -1)
@@ -921,7 +952,7 @@ static void do_dump(struct f2fs_sb_info *sbi)
 	if (opt->blk_addr != -1)
 		dump_info_from_blkaddr(sbi, opt->blk_addr);
 	if (opt->nid)
-		dump_node(sbi, opt->nid, 0);
+		dump_node(sbi, opt->nid, c.force, opt->base_path, 1, 1);
 	if (opt->scan_nid)
 		dump_node_scan_disk(sbi, opt->scan_nid);
 
@@ -935,7 +966,7 @@ static int do_defrag(struct f2fs_sb_info *sbi)
 {
 	struct f2fs_super_block *sb = F2FS_RAW_SUPER(sbi);
 
-	if (get_sb(feature) & cpu_to_le32(F2FS_FEATURE_RO)) {
+	if (get_sb(feature) & F2FS_FEATURE_RO) {
 		MSG(0, "Not support on readonly image.\n");
 		return -1;
 	}
@@ -1051,7 +1082,7 @@ static int do_label(struct f2fs_sb_info *sbi)
 	if (!c.vol_label) {
 		char label[MAX_VOLUME_NAME];
 
-		utf16_to_utf8(label, sb->volume_name,
+		utf16_to_utf8(label, (const char *)sb->volume_name,
 			      MAX_VOLUME_NAME, MAX_VOLUME_NAME);
 		MSG(0, "Info: volume label = %s\n", label);
 		return 0;
@@ -1062,7 +1093,7 @@ static int do_label(struct f2fs_sb_info *sbi)
 		return -1;
 	}
 
-	utf8_to_utf16(sb->volume_name, (const char *)c.vol_label,
+	utf8_to_utf16((char *)sb->volume_name, (const char *)c.vol_label,
 		      MAX_VOLUME_NAME, strlen(c.vol_label));
 
 	update_superblock(sb, SB_MASK_ALL);
@@ -1103,8 +1134,8 @@ int main(int argc, char **argv)
 
 	f2fs_parse_options(argc, argv);
 
-	if (c.func != DUMP && f2fs_devs_are_umounted() < 0) {
-		if (errno == EBUSY) {
+	if (c.func != DUMP && (ret = f2fs_devs_are_umounted()) < 0) {
+		if (ret == -EBUSY) {
 			ret = -1;
 			if (c.func == FSCK)
 				ret = FSCK_OPERATIONAL_ERROR;

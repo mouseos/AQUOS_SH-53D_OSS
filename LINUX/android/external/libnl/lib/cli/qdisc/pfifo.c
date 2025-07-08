@@ -3,6 +3,8 @@
  * Copyright (c) 2010-2011 Thomas Graf <tgraf@suug.ch>
  */
 
+#include "nl-default.h"
+
 #include <netlink/cli/utils.h>
 #include <netlink/cli/tc.h>
 #include <netlink/route/qdisc/fifo.h>
@@ -59,12 +61,12 @@ static struct nl_cli_tc_module pfifo_module =
 	.tm_parse_argv		= pfifo_parse_argv,
 };
 
-static void __init pfifo_init(void)
+static void _nl_init pfifo_init(void)
 {
 	nl_cli_tc_register(&pfifo_module);
 }
 
-static void __exit pfifo_exit(void)
+static void _nl_exit pfifo_exit(void)
 {
 	nl_cli_tc_unregister(&pfifo_module);
 }

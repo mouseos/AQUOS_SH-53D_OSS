@@ -9,18 +9,7 @@
       ]
     },
     {
-      "name": "CtsLibcoreOjTestCases",
-      "options": [
-        {
-          "include-filter": "test.java.time.temporal"
-        },
-        {
-          "include-filter": "tck.java.time.temporal"
-        },
-        {
-          "include-filter": "tck.java.time.temporal.serial"
-        }
-      ]
+      "name": "CtsLibcoreOjTestCases_time_temporal"
     }
   ]
 }

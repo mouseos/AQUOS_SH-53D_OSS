@@ -10,6 +10,7 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include "erofs/io.h"
@@ -19,16 +20,13 @@
 #ifdef HAVE_LINUX_FALLOC_H
 #include <linux/falloc.h>
 #endif
-
+#ifdef HAVE_SYS_STATFS_H
+#include <sys/statfs.h>
+#endif
 #define EROFS_MODNAME	"erofs_io"
 #include "erofs/print.h"
 
-static const char *erofs_devname;
-int erofs_devfd = -1;
-static u64 erofs_devsz;
-static unsigned int erofs_nblobs, erofs_blobfd[256];
-
-int dev_get_blkdev_size(int fd, u64 *bytes)
+static int dev_get_blkdev_size(int fd, u64 *bytes)
 {
 	errno = ENOTSUP;
 #ifdef BLKGETSIZE64
@@ -48,19 +46,25 @@ int dev_get_blkdev_size(int fd, u64 *bytes)
 	return -errno;
 }
 
-void dev_close(void)
+void dev_close(struct erofs_sb_info *sbi)
 {
-	close(erofs_devfd);
-	erofs_devname = NULL;
-	erofs_devfd   = -1;
-	erofs_devsz   = 0;
+	close(sbi->devfd);
+	free(sbi->devname);
+	sbi->devname = NULL;
+	sbi->devfd   = -1;
+	sbi->devsz   = 0;
 }
 
-int dev_open(const char *dev)
+int dev_open(struct erofs_sb_info *sbi, const char *dev)
 {
 	struct stat st;
 	int fd, ret;
 
+#if defined(HAVE_SYS_STATFS_H) && defined(HAVE_FSTATFS)
+	bool again = false;
+
+repeat:
+#endif
 	fd = open(dev, O_RDWR | O_CREAT | O_BINARY, 0644);
 	if (fd < 0) {
 		erofs_err("failed to open(%s).", dev);
@@ -76,23 +80,46 @@ int dev_open(const char *dev)
 
 	switch (st.st_mode & S_IFMT) {
 	case S_IFBLK:
-		ret = dev_get_blkdev_size(fd, &erofs_devsz);
+		ret = dev_get_blkdev_size(fd, &sbi->devsz);
 		if (ret) {
 			erofs_err("failed to get block device size(%s).", dev);
 			close(fd);
 			return ret;
 		}
-		erofs_devsz = round_down(erofs_devsz, EROFS_BLKSIZ);
+		sbi->devsz = round_down(sbi->devsz, erofs_blksiz(sbi));
 		break;
 	case S_IFREG:
-		ret = ftruncate(fd, 0);
-		if (ret) {
-			erofs_err("failed to ftruncate(%s).", dev);
-			close(fd);
-			return -errno;
+		if (st.st_size) {
+#if defined(HAVE_SYS_STATFS_H) && defined(HAVE_FSTATFS)
+			struct statfs stfs;
+
+			if (again)
+				return -ENOTEMPTY;
+
+			/*
+			 * fses like EXT4 and BTRFS will flush dirty blocks
+			 * after truncate(0) even after the writeback happens
+			 * (see kernel commit 7d8f9f7d150d and ccd2506bd431),
+			 * which is NOT our intention.  Let's work around this.
+			 */
+			if (!fstatfs(fd, &stfs) && (stfs.f_type == 0xEF53 ||
+					stfs.f_type == 0x9123683E)) {
+				close(fd);
+				unlink(dev);
+				again = true;
+				goto repeat;
+			}
+#endif
+			ret = ftruncate(fd, 0);
+			if (ret) {
+				erofs_err("failed to ftruncate(%s).", dev);
+				close(fd);
+				return -errno;
+			}
 		}
 		/* INT64_MAX is the limit of kernel vfs */
-		erofs_devsz = INT64_MAX;
+		sbi->devsz = INT64_MAX;
+		sbi->devblksz = st.st_blksize;
 		break;
 	default:
 		erofs_err("bad file type (%s, %o).", dev, st.st_mode);
@@ -100,23 +127,27 @@ int dev_open(const char *dev)
 		return -EINVAL;
 	}
 
-	erofs_devname = dev;
-	erofs_devfd = fd;
+	sbi->devname = strdup(dev);
+	if (!sbi->devname) {
+		close(fd);
+		return -ENOMEM;
+	}
+	sbi->devfd = fd;
 
 	erofs_info("successfully to open %s", dev);
 	return 0;
 }
 
-void blob_closeall(void)
+void blob_closeall(struct erofs_sb_info *sbi)
 {
 	unsigned int i;
 
-	for (i = 0; i < erofs_nblobs; ++i)
-		close(erofs_blobfd[i]);
-	erofs_nblobs = 0;
+	for (i = 0; i < sbi->nblobs; ++i)
+		close(sbi->blobfd[i]);
+	sbi->nblobs = 0;
 }
 
-int blob_open_ro(const char *dev)
+int blob_open_ro(struct erofs_sb_info *sbi, const char *dev)
 {
 	int fd = open(dev, O_RDONLY | O_BINARY);
 
@@ -125,14 +156,14 @@ int blob_open_ro(const char *dev)
 		return -errno;
 	}
 
-	erofs_blobfd[erofs_nblobs] = fd;
-	erofs_info("successfully to open blob%u %s", erofs_nblobs, dev);
-	++erofs_nblobs;
+	sbi->blobfd[sbi->nblobs] = fd;
+	erofs_info("successfully to open blob%u %s", sbi->nblobs, dev);
+	++sbi->nblobs;
 	return 0;
 }
 
 /* XXX: temporary soluation. Disk I/O implementation needs to be refactored. */
-int dev_open_ro(const char *dev)
+int dev_open_ro(struct erofs_sb_info *sbi, const char *dev)
 {
 	int fd = open(dev, O_RDONLY | O_BINARY);
 
@@ -141,18 +172,17 @@ int dev_open_ro(const char *dev)
 		return -errno;
 	}
 
-	erofs_devfd = fd;
-	erofs_devname = dev;
-	erofs_devsz = INT64_MAX;
+	sbi->devname = strdup(dev);
+	if (!sbi->devname) {
+		close(fd);
+		return -ENOMEM;
+	}
+	sbi->devfd = fd;
+	sbi->devsz = INT64_MAX;
 	return 0;
 }
 
-u64 dev_length(void)
-{
-	return erofs_devsz;
-}
-
-int dev_write(const void *buf, u64 offset, size_t len)
+int dev_write(struct erofs_sb_info *sbi, const void *buf, u64 offset, size_t len)
 {
 	int ret;
 
@@ -164,60 +194,60 @@ int dev_write(const void *buf, u64 offset, size_t len)
 		return -EINVAL;
 	}
 
-	if (offset >= erofs_devsz || len > erofs_devsz ||
-	    offset > erofs_devsz - len) {
+	if (offset >= sbi->devsz || len > sbi->devsz ||
+	    offset > sbi->devsz - len) {
 		erofs_err("Write posion[%" PRIu64 ", %zd] is too large beyond the end of device(%" PRIu64 ").",
-			  offset, len, erofs_devsz);
+			  offset, len, sbi->devsz);
 		return -EINVAL;
 	}
 
 #ifdef HAVE_PWRITE64
-	ret = pwrite64(erofs_devfd, buf, len, (off64_t)offset);
+	ret = pwrite64(sbi->devfd, buf, len, (off64_t)offset);
 #else
-	ret = pwrite(erofs_devfd, buf, len, (off_t)offset);
+	ret = pwrite(sbi->devfd, buf, len, (off_t)offset);
 #endif
 	if (ret != (int)len) {
 		if (ret < 0) {
 			erofs_err("Failed to write data into device - %s:[%" PRIu64 ", %zd].",
-				  erofs_devname, offset, len);
+				  sbi->devname, offset, len);
 			return -errno;
 		}
 
 		erofs_err("Writing data into device - %s:[%" PRIu64 ", %zd] - was truncated.",
-			  erofs_devname, offset, len);
+			  sbi->devname, offset, len);
 		return -ERANGE;
 	}
 	return 0;
 }
 
-int dev_fillzero(u64 offset, size_t len, bool padding)
+int dev_fillzero(struct erofs_sb_info *sbi, u64 offset, size_t len, bool padding)
 {
-	static const char zero[EROFS_BLKSIZ] = {0};
+	static const char zero[EROFS_MAX_BLOCK_SIZE] = {0};
 	int ret;
 
 	if (cfg.c_dry_run)
 		return 0;
 
 #if defined(HAVE_FALLOCATE) && defined(FALLOC_FL_PUNCH_HOLE)
-	if (!padding && fallocate(erofs_devfd, FALLOC_FL_PUNCH_HOLE |
+	if (!padding && fallocate(sbi->devfd, FALLOC_FL_PUNCH_HOLE |
 				  FALLOC_FL_KEEP_SIZE, offset, len) >= 0)
 		return 0;
 #endif
-	while (len > EROFS_BLKSIZ) {
-		ret = dev_write(zero, offset, EROFS_BLKSIZ);
+	while (len > erofs_blksiz(sbi)) {
+		ret = dev_write(sbi, zero, offset, erofs_blksiz(sbi));
 		if (ret)
 			return ret;
-		len -= EROFS_BLKSIZ;
-		offset += EROFS_BLKSIZ;
+		len -= erofs_blksiz(sbi);
+		offset += erofs_blksiz(sbi);
 	}
-	return dev_write(zero, offset, len);
+	return dev_write(sbi, zero, offset, len);
 }
 
-int dev_fsync(void)
+int dev_fsync(struct erofs_sb_info *sbi)
 {
 	int ret;
 
-	ret = fsync(erofs_devfd);
+	ret = fsync(sbi->devfd);
 	if (ret) {
 		erofs_err("Could not fsync device!!!");
 		return -EIO;
@@ -225,41 +255,44 @@ int dev_fsync(void)
 	return 0;
 }
 
-int dev_resize(unsigned int blocks)
+int dev_resize(struct erofs_sb_info *sbi, unsigned int blocks)
 {
 	int ret;
 	struct stat st;
 	u64 length;
 
-	if (cfg.c_dry_run || erofs_devsz != INT64_MAX)
+	if (cfg.c_dry_run || sbi->devsz != INT64_MAX)
 		return 0;
 
-	ret = fstat(erofs_devfd, &st);
+	ret = fstat(sbi->devfd, &st);
 	if (ret) {
 		erofs_err("failed to fstat.");
 		return -errno;
 	}
 
-	length = (u64)blocks * EROFS_BLKSIZ;
+	length = (u64)blocks * erofs_blksiz(sbi);
 	if (st.st_size == length)
 		return 0;
 	if (st.st_size > length)
-		return ftruncate(erofs_devfd, length);
+		return ftruncate(sbi->devfd, length);
 
 	length = length - st.st_size;
 #if defined(HAVE_FALLOCATE)
-	if (fallocate(erofs_devfd, 0, st.st_size, length) >= 0)
+	if (fallocate(sbi->devfd, 0, st.st_size, length) >= 0)
 		return 0;
 #endif
-	return dev_fillzero(st.st_size, length, true);
+	return dev_fillzero(sbi, st.st_size, length, true);
 }
 
-int dev_read(int device_id, void *buf, u64 offset, size_t len)
+int dev_read(struct erofs_sb_info *sbi, int device_id,
+	     void *buf, u64 offset, size_t len)
 {
-	int ret, fd;
+	int read_count, fd;
 
 	if (cfg.c_dry_run)
 		return 0;
+
+	offset += cfg.c_offset;
 
 	if (!buf) {
 		erofs_err("buf is NULL");
@@ -267,24 +300,36 @@ int dev_read(int device_id, void *buf, u64 offset, size_t len)
 	}
 
 	if (!device_id) {
-		fd = erofs_devfd;
+		fd = sbi->devfd;
 	} else {
-		if (device_id > erofs_nblobs) {
+		if (device_id > sbi->nblobs) {
 			erofs_err("invalid device id %d", device_id);
 			return -ENODEV;
 		}
-		fd = erofs_blobfd[device_id - 1];
+		fd = sbi->blobfd[device_id - 1];
 	}
 
+	while (len > 0) {
 #ifdef HAVE_PREAD64
-	ret = pread64(fd, buf, len, (off64_t)offset);
+		read_count = pread64(fd, buf, len, (off64_t)offset);
 #else
-	ret = pread(fd, buf, len, (off_t)offset);
+		read_count = pread(fd, buf, len, (off_t)offset);
 #endif
-	if (ret != (int)len) {
-		erofs_err("Failed to read data from device - %s:[%" PRIu64 ", %zd].",
-			  erofs_devname, offset, len);
-		return -errno;
+		if (read_count < 1) {
+			if (!read_count) {
+				erofs_info("Reach EOF of device - %s:[%" PRIu64 ", %zd].",
+					   sbi->devname, offset, len);
+				memset(buf, 0, len);
+				return 0;
+			} else if (errno != EINTR) {
+				erofs_err("Failed to read data from device - %s:[%" PRIu64 ", %zd].",
+					  sbi->devname, offset, len);
+				return -errno;
+			}
+		}
+		offset += read_count;
+		len -= read_count;
+		buf += read_count;
 	}
 	return 0;
 }
@@ -373,7 +418,7 @@ ssize_t erofs_copy_file_range(int fd_in, erofs_off_t *off_in,
 			      length, 0);
 	if (ret >= 0)
 		goto out;
-	if (errno != ENOSYS) {
+	if (errno != ENOSYS && errno != EXDEV) {
 		ret = -errno;
 out:
 		*off_in = off64_in;

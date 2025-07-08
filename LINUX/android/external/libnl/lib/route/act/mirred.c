@@ -10,13 +10,18 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/tc.h>
+#include "nl-default.h"
+
 #include <netlink/netlink.h>
 #include <netlink/attr.h>
 #include <netlink/utils.h>
-#include <netlink-private/route/tc-api.h>
 #include <netlink/route/act/mirred.h>
+
+#include "tc-api.h"
+
+struct rtnl_mirred {
+	struct tc_mirred m_parm;
+};
 
 static struct nla_policy mirred_policy[TCA_MIRRED_MAX + 1] = {
 	[TCA_MIRRED_PARMS]      = { .minlen = sizeof(struct tc_mirred) },
@@ -204,12 +209,12 @@ static struct rtnl_tc_ops mirred_ops = {
 	},
 };
 
-static void __init mirred_init(void)
+static void _nl_init mirred_init(void)
 {
 	rtnl_tc_register(&mirred_ops);
 }
 
-static void __exit mirred_exit(void)
+static void _nl_exit mirred_exit(void)
 {
 	rtnl_tc_unregister(&mirred_ops);
 }

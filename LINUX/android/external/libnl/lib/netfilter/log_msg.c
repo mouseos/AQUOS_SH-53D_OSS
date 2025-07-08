@@ -13,14 +13,18 @@
  * @{
  */
 
+#include "nl-default.h"
+
 #include <sys/types.h>
+
 #include <linux/netfilter/nfnetlink_log.h>
 
-#include <netlink-private/netlink.h>
 #include <netlink/attr.h>
 #include <netlink/netfilter/nfnl.h>
 #include <netlink/netfilter/log_msg.h>
-#include <netlink-private/utils.h>
+
+#include "nl-netfilter.h"
+#include "nl-priv-dynamic-core/cache-api.h"
 
 static struct nla_policy log_msg_policy[NFULA_MAX+1] = {
 	[NFULA_PACKET_HDR]		= {
@@ -244,12 +248,12 @@ static struct nl_cache_ops nfnl_log_msg_ops = {
 	.co_obj_ops		= &log_msg_obj_ops,
 };
 
-static void __init log_msg_init(void)
+static void _nl_init log_msg_init(void)
 {
 	nl_cache_mngt_register(&nfnl_log_msg_ops);
 }
 
-static void __exit log_msg_exit(void)
+static void _nl_exit log_msg_exit(void)
 {
 	nl_cache_mngt_unregister(&nfnl_log_msg_ops);
 }

@@ -55,4 +55,7 @@ public void clear() { throw new RuntimeException("Stub!"); }
 @libcore.util.NonNull public java.lang.Object clone() { throw new RuntimeException("Stub!"); }
 
 @libcore.util.NonNull public java.util.Spliterator<@libcore.util.NullFromTypeParam E> spliterator() { throw new RuntimeException("Stub!"); }
+
+@libcore.util.NonNull public static <T> java.util.HashSet<T> newHashSet(int numElements) { throw new RuntimeException("Stub!"); }
+
 }

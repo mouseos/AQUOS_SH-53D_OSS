@@ -10,8 +10,8 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/nl-auto.h>
+#include "nl-default.h"
+
 #include <netlink/netlink.h>
 #include <netlink/cache.h>
 #include <netlink/utils.h>
@@ -19,6 +19,11 @@
 #include <netlink/route/rtnl.h>
 #include <netlink/route/route.h>
 #include <netlink/route/link.h>
+
+#include "nl-route.h"
+#include "nl-priv-dynamic-core/nl-core.h"
+#include "nl-priv-dynamic-core/cache-api.h"
+#include "nl-aux-route/nl-route.h"
 
 static struct nl_cache_ops rtnl_route_ops;
 
@@ -215,12 +220,12 @@ static struct nl_cache_ops rtnl_route_ops = {
 	.co_obj_ops		= &route_obj_ops,
 };
 
-static void __init route_init(void)
+static void _nl_init route_init(void)
 {
 	nl_cache_mngt_register(&rtnl_route_ops);
 }
 
-static void __exit route_exit(void)
+static void _nl_exit route_exit(void)
 {
 	nl_cache_mngt_unregister(&rtnl_route_ops);
 }

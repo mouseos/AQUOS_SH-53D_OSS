@@ -1,0 +1,4 @@
+/* OVERLAY,SX3,EVB */
+#include "mediatek/overlay_sx3_evb_fih_info.dtsi"
+#include "mediatek/overlay_sx4_sdcard.dtsi"
+#include "mediatek/overlay_sx3_pre_evt_fih_fp.dtsi"

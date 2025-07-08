@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 #
 # Copyright 2014 The Android Open Source Project
 #
@@ -52,11 +52,23 @@ IPV6_FLOWINFO = 11
 IPV6_HOPLIMIT = 52  # Different from IPV6_UNICAST_HOPS, this is cmsg only.
 
 
+ACCEPT_RA_MIN_LFT_SYSCTL = "/proc/sys/net/ipv6/conf/default/accept_ra_min_lft"
 AUTOCONF_TABLE_SYSCTL = "/proc/sys/net/ipv6/conf/default/accept_ra_rt_table"
 IPV4_MARK_REFLECT_SYSCTL = "/proc/sys/net/ipv4/fwmark_reflect"
 IPV6_MARK_REFLECT_SYSCTL = "/proc/sys/net/ipv6/fwmark_reflect"
+RA_HONOR_PIO_LIFE_SYSCTL = "/proc/sys/net/ipv6/conf/default/ra_honor_pio_life"
 
+HAVE_ACCEPT_RA_MIN_LFT = (os.path.isfile(ACCEPT_RA_MIN_LFT_SYSCTL) or
+                          net_test.NonGXI(5, 10) or
+                          net_test.KernelAtLeast([(5, 10, 199), (5, 15, 136),
+                                                  (6, 1, 57), (6, 6, 0)]))
 HAVE_AUTOCONF_TABLE = os.path.isfile(AUTOCONF_TABLE_SYSCTL)
+HAVE_RA_HONOR_PIO_LIFE = (os.path.isfile(RA_HONOR_PIO_LIFE_SYSCTL) or
+                          net_test.KernelAtLeast([(6, 7, 0)]))
+
+
+class ConfigurationError(AssertionError):
+  pass
 
 
 class UnexpectedPacketError(AssertionError):
@@ -72,7 +84,7 @@ def MakePktInfo(version, addr, ifindex):
   if version == 6:
     return csocket.In6Pktinfo((addr, ifindex)).Pack()
   else:
-    return csocket.InPktinfo((ifindex, addr, "\x00" * 4)).Pack()
+    return csocket.InPktinfo((ifindex, addr, b"\x00" * 4)).Pack()
 
 
 class MultiNetworkBaseTest(net_test.NetworkTest):
@@ -97,8 +109,9 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
   # Wether to output setup commands.
   DEBUG = False
 
-  # The size of our UID ranges.
-  UID_RANGE_SIZE = 1000
+  UID_RANGE_START = 2000
+  UID_RANGE_END = 9999
+  UID_RANGE_SIZE = UID_RANGE_END - UID_RANGE_START + 1
 
   # Rule priorities.
   PRIORITY_UID = 100
@@ -121,13 +134,15 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
   IPV4_PING = net_test.IPV4_PING
   IPV6_PING = net_test.IPV6_PING
 
-  RA_VALIDITY = 300 # seconds
+  RA_VALIDITY = 600 # seconds
 
   @classmethod
   def UidRangeForNetid(cls, netid):
+    per_netid_range = int(cls.UID_RANGE_SIZE / len(cls.NETIDS))
+    idx = cls.NETIDS.index(netid)
     return (
-        cls.UID_RANGE_SIZE * netid,
-        cls.UID_RANGE_SIZE * (netid + 1) - 1
+        cls.UID_RANGE_START + per_netid_range * idx,
+        cls.UID_RANGE_START + per_netid_range * (idx + 1) - 1
     )
 
   @classmethod
@@ -211,11 +226,11 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
   def CreateTunInterface(cls, netid):
     iface = cls.GetInterfaceName(netid)
     try:
-      f = open("/dev/net/tun", "r+b")
+      f = open("/dev/net/tun", "r+b", buffering=0)
     except IOError:
-      f = open("/dev/tun", "r+b")
-    ifr = struct.pack("16sH", iface, IFF_TAP | IFF_NO_PI)
-    ifr += "\x00" * (40 - len(ifr))
+      f = open("/dev/tun", "r+b", buffering=0)
+    ifr = struct.pack("16sH", iface.encode(), IFF_TAP | IFF_NO_PI)
+    ifr += b"\x00" * (40 - len(ifr))
     fcntl.ioctl(f, TUNSETIFF, ifr)
     # Give ourselves a predictable MAC address.
     net_test.SetInterfaceHWAddr(iface, cls.MyMacAddress(netid))
@@ -228,8 +243,8 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
     return f
 
   @classmethod
-  def SendRA(cls, netid, retranstimer=None, reachabletime=0, options=()):
-    validity = cls.RA_VALIDITY # seconds
+  def SendRA(cls, netid, retranstimer=None, reachabletime=0, routerlft=RA_VALIDITY,
+             piolft=RA_VALIDITY, m=0, o=0, options=()):
     macaddr = cls.RouterMacAddress(netid)
     lladdr = cls._RouterAddress(netid, 6)
 
@@ -237,26 +252,28 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
       # If no retrans timer was specified, pick one that's as long as the
       # router lifetime. This ensures that no spurious ND retransmits
       # will interfere with test expectations.
-      retranstimer = validity * 1000  # Lifetime is in s, retrans timer in ms.
+      retranstimer = routerlft * 1000  # Lifetime is in s, retrans timer in ms.
 
     # We don't want any routes in the main table. If the kernel doesn't support
     # putting RA routes into per-interface tables, configure routing manually.
-    routerlifetime = validity if HAVE_AUTOCONF_TABLE else 0
+    if not HAVE_AUTOCONF_TABLE:
+      routerlft = 0
 
     ra = (scapy.Ether(src=macaddr, dst="33:33:00:00:00:01") /
           scapy.IPv6(src=lladdr, hlim=255) /
           scapy.ICMPv6ND_RA(reachabletime=reachabletime,
                             retranstimer=retranstimer,
-                            routerlifetime=routerlifetime) /
+                            routerlifetime=routerlft,
+                            M=m, O=o) /
           scapy.ICMPv6NDOptSrcLLAddr(lladdr=macaddr) /
           scapy.ICMPv6NDOptPrefixInfo(prefix=cls.OnlinkPrefix(6, netid),
                                       prefixlen=cls.OnlinkPrefixLen(6),
                                       L=1, A=1,
-                                      validlifetime=validity,
-                                      preferredlifetime=validity))
+                                      validlifetime=piolft,
+                                      preferredlifetime=piolft))
     for option in options:
       ra /= option
-    posix.write(cls.tuns[netid].fileno(), str(ra))
+    posix.write(cls.tuns[netid].fileno(), bytes(ra))
 
   @classmethod
   def _RunSetupCommands(cls, netid, is_add):
@@ -346,7 +363,8 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
 
   @classmethod
   def GetSysctl(cls, sysctl):
-    return open(sysctl, "r").read()
+    with open(sysctl, "r") as sysctl_file:
+      return sysctl_file.read()
 
   @classmethod
   def SetSysctl(cls, sysctl, value):
@@ -355,7 +373,8 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
     # correctly at the end.
     if sysctl not in cls.saved_sysctls:
       cls.saved_sysctls[sysctl] = cls.GetSysctl(sysctl)
-    open(sysctl, "w").write(str(value) + "\n")
+    with open(sysctl, "w") as sysctl_file:
+      sysctl_file.write(str(value) + "\n")
 
   @classmethod
   def SetIPv6SysctlOnAllIfaces(cls, sysctl, value):
@@ -368,7 +387,8 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
   def _RestoreSysctls(cls):
     for sysctl, value in cls.saved_sysctls.items():
       try:
-        open(sysctl, "w").write(value)
+        with open(sysctl, "w") as sysctl_file:
+          sysctl_file.write(value)
       except IOError:
         pass
 
@@ -436,6 +456,7 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
       cls._RunSetupCommands(netid, False)
       cls.tuns[netid].close()
 
+    cls.iproute.close()
     cls._RestoreSysctls()
     cls.SetConsoleLogLevel(cls.loglevel)
 
@@ -456,7 +477,7 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
   def BindToDevice(self, s, iface):
     if not iface:
       iface = ""
-    s.setsockopt(SOL_SOCKET, SO_BINDTODEVICE, iface)
+    s.setsockopt(SOL_SOCKET, SO_BINDTODEVICE, iface.encode())
 
   def SetUnicastInterface(self, s, ifindex):
     # Otherwise, Python thinks it's a 1-byte option.
@@ -529,7 +550,7 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
     csocket.Sendmsg(s, (dstaddr, dstport), payload, cmsgs, csocket.MSG_CONFIRM)
 
   def ReceiveEtherPacketOn(self, netid, packet):
-    posix.write(self.tuns[netid].fileno(), str(packet))
+    posix.write(self.tuns[netid].fileno(), bytes(packet))
 
   def ReceivePacketOn(self, netid, ip_packet):
     routermac = self.RouterMacAddress(netid)
@@ -560,7 +581,7 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
           packets.append(ether.payload)
       except OSError as e:
         # EAGAIN means there are no more packets waiting.
-        if re.match(e.message, os.strerror(errno.EAGAIN)):
+        if e.errno == errno.EAGAIN:
           # If we didn't see any packets, try again for good luck.
           if not packets and retries < max_retries:
             time.sleep(0.01)
@@ -637,8 +658,9 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
       if expectedudp.sport is None:
         actualudp.sport = None
         actualudp.chksum = None
-      elif actualudp.chksum == 0xffff:
+      elif actualudp.chksum == 0xffff and expectedudp.chksum == 0:
         # Scapy does not appear to change 0 to 0xffff as required by RFC 768.
+        # It is possible that scapy has been upgraded and this no longer triggers.
         actualudp.chksum = 0
 
     # Since the TCP code below messes with options, recalculate the length.
@@ -664,8 +686,8 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
 
     # Serialize the packet so that expected packet fields that are only set when
     # a packet is serialized e.g., the checksum) are filled in.
-    expected_real = expected.__class__(str(expected))
-    actual_real = actual.__class__(str(actual))
+    expected_real = expected.__class__(bytes(expected))
+    actual_real = actual.__class__(bytes(actual))
     # repr() can be expensive. Call it only if the test is going to fail and we
     # want to see the error.
     if expected_real != actual_real:
@@ -712,7 +734,7 @@ class MultiNetworkBaseTest(net_test.NetworkTest):
       self.assertPacketMatches(expected, packets[-1])
     except Exception as e:
       raise UnexpectedPacketError(
-          "%s: diff with last packet:\n%s" % (msg, e.message))
+          "%s: diff with last packet:\n%s" % (msg, str(e)))
 
   def Combinations(self, version):
     """Produces a list of combinations to test."""

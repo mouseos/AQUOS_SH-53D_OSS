@@ -9,15 +9,20 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/utils.h>
-#include <netlink-private/tc.h>
+#include "nl-default.h"
+
+#include <linux/gen_stats.h>
+
 #include <netlink/netlink.h>
 #include <netlink/utils.h>
-#include <netlink-private/route/tc-api.h>
 #include <netlink/route/link.h>
 #include <netlink/route/action.h>
 
+#include "nl-route.h"
+#include "tc-api.h"
+#include "nl-priv-dynamic-core/object-api.h"
+#include "nl-priv-dynamic-core/cache-api.h"
+#include "nl-aux-route/nl-route.h"
 
 static struct nl_object_ops act_obj_ops;
 static struct nl_cache_ops rtnl_act_ops;
@@ -293,7 +298,7 @@ int rtnl_act_build_change_request(struct rtnl_act *act, int flags,
  * sends the request to the kernel and waits for the next ACK to be
  * received and thus blocks until the request has been processed.
  *
- * @return 0 on sucess or a negative error if an error occured.
+ * @return 0 on success or a negative error if an error occured.
  */
 int rtnl_act_change(struct nl_sock *sk, struct rtnl_act *act, int flags)
 {
@@ -387,9 +392,16 @@ void rtnl_act_put_all(struct rtnl_act **head)
 	*head = NULL;
 }
 
+static struct nla_policy tc_act_stats_policy[TCA_STATS_MAX+1] = {
+	[TCA_STATS_BASIC]    	= { .minlen = sizeof(struct gnet_stats_basic) },
+	[TCA_STATS_QUEUE]    	= { .minlen = sizeof(struct gnet_stats_queue) },
+	[TCA_STATS_RATE_EST] 	= { .minlen = sizeof(struct gnet_stats_rate_est) },
+	[TCA_STATS_RATE_EST64] 	= { .minlen = sizeof(struct gnet_stats_rate_est64) },
+};
+
 int rtnl_act_parse(struct rtnl_act **head, struct nlattr *tb)
 {
-	struct rtnl_act *act;
+	_nl_auto_rtnl_act_all struct rtnl_act *tmp_head = NULL;
 	struct rtnl_tc_ops *ops;
 	struct nlattr *tb2[TCA_ACT_MAX + 1];
 	struct nlattr *nla[TCA_ACT_MAX_PRIO + 1];
@@ -402,63 +414,92 @@ int rtnl_act_parse(struct rtnl_act **head, struct nlattr *tb)
 		return err;
 
 	for (i = 0; i < TCA_ACT_MAX_PRIO; i++) {
+		_nl_auto_rtnl_act struct rtnl_act *act = NULL;
 		struct rtnl_tc *tc;
 
 		if (nla[i] == NULL)
 			continue;
 
 		act = rtnl_act_alloc();
-		if (!act) {
-			err = -NLE_NOMEM;
-			goto err_free;
-		}
+		if (!act)
+			return -NLE_NOMEM;
+
 		tc = TC_CAST(act);
 		err = nla_parse(tb2, TCA_ACT_MAX, nla_data(nla[i]),
 				nla_len(nla[i]), NULL);
 		if (err < 0)
-			goto err_free;
+			return err;
 
-		if (tb2[TCA_ACT_KIND] == NULL) {
-			err = -NLE_MISSING_ATTR;
-			goto err_free;
-		}
+		if (tb2[TCA_ACT_KIND] == NULL)
+			return -NLE_MISSING_ATTR;
 
 		nla_strlcpy(kind, tb2[TCA_ACT_KIND], sizeof(kind));
 		rtnl_tc_set_kind(tc, kind);
 
 		if (tb2[TCA_ACT_OPTIONS]) {
 			tc->tc_opts = nl_data_alloc_attr(tb2[TCA_ACT_OPTIONS]);
-			if (!tc->tc_opts) {
-				err = -NLE_NOMEM;
-				goto err_free;
-			}
+			if (!tc->tc_opts)
+				return -NLE_NOMEM;
 			tc->ce_mask |= TCA_ATTR_OPTS;
+		}
+
+		if (tb2[TCA_ACT_STATS]) {
+			struct nlattr *tb3[TCA_STATS_MAX + 1];
+
+			err = nla_parse_nested(tb3, TCA_STATS_MAX, tb2[TCA_ACT_STATS],
+					       tc_act_stats_policy);
+			if (err < 0)
+				return err;
+
+			if (tb3[TCA_STATS_BASIC]) {
+				struct gnet_stats_basic bs;
+
+				memcpy(&bs, nla_data(tb3[TCA_STATS_BASIC]),
+				       sizeof(bs));
+				tc->tc_stats[RTNL_TC_BYTES] = bs.bytes;
+				tc->tc_stats[RTNL_TC_PACKETS] = bs.packets;
+			}
+			if (tb3[TCA_STATS_RATE_EST64]) {
+				struct gnet_stats_rate_est64 re;
+
+				memcpy(&re, nla_data(tb3[TCA_STATS_RATE_EST64]),
+				       sizeof(re));
+				tc->tc_stats[RTNL_TC_RATE_BPS] = re.bps;
+				tc->tc_stats[RTNL_TC_RATE_PPS] = re.pps;
+			} else if (tb3[TCA_STATS_RATE_EST]) {
+				struct gnet_stats_rate_est *re;
+
+				re = nla_data(tb3[TCA_STATS_RATE_EST]);
+				tc->tc_stats[RTNL_TC_RATE_BPS] = re->bps;
+				tc->tc_stats[RTNL_TC_RATE_PPS] = re->pps;
+			}
+			if (tb3[TCA_STATS_QUEUE]) {
+				struct gnet_stats_queue *q;
+
+				q = nla_data(tb3[TCA_STATS_QUEUE]);
+				tc->tc_stats[RTNL_TC_DROPS] = q->drops;
+				tc->tc_stats[RTNL_TC_OVERLIMITS] = q->overlimits;
+			}
 		}
 
 		ops = rtnl_tc_get_ops(tc);
 		if (ops && ops->to_msg_parser) {
 			void *data = rtnl_tc_data(tc);
 
-			if (!data) {
-				err = -NLE_NOMEM;
-				goto err_free;
-			}
+			if (!data)
+				return -NLE_NOMEM;
 
 			err = ops->to_msg_parser(tc, data);
 			if (err < 0)
-				goto err_free;
+				return err;
 		}
-		err = rtnl_act_append(head, act);
+		err = _rtnl_act_append_take(&tmp_head, _nl_steal_pointer(&act));
 		if (err < 0)
-			goto err_free;
+			return err;
 	}
+
+	*head = _nl_steal_pointer(&tmp_head);
 	return 0;
-
-err_free:
-	rtnl_act_put (act);
-	rtnl_act_put_all(head);
-
-	return err;
 }
 
 static int rtnl_act_msg_parse(struct nlmsghdr *n, struct rtnl_act **act)
@@ -575,13 +616,13 @@ static struct nl_object_ops act_obj_ops = {
 	.oo_id_attrs		= (TCA_ATTR_IFINDEX | TCA_ATTR_HANDLE),
 };
 
-static void __init act_init(void)
+static void _nl_init act_init(void)
 {
 	rtnl_tc_type_register(&act_ops);
 	nl_cache_mngt_register(&rtnl_act_ops);
 }
 
-static void __exit act_exit(void)
+static void _nl_exit act_exit(void)
 {
 	nl_cache_mngt_unregister(&rtnl_act_ops);
 	rtnl_tc_type_unregister(&act_ops);

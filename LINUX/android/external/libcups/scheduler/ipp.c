@@ -1,7 +1,7 @@
 /*
  * IPP routines for the CUPS scheduler.
  *
- * Copyright © 2007-2019 by Apple Inc.
+ * Copyright © 2007-2021 by Apple Inc.
  * Copyright © 1997-2007 by Easy Software Products, all rights reserved.
  *
  * This file contains Kerberos support code, copyright 2006 by
@@ -72,6 +72,7 @@ static void	copy_subscription_attrs(cupsd_client_t *con,
 					cups_array_t *ra,
 					cups_array_t *exclude);
 static void	create_job(cupsd_client_t *con, ipp_attribute_t *uri);
+static void	*create_local_bg_thread(cupsd_printer_t *printer);
 static void	create_local_printer(cupsd_client_t *con);
 static cups_array_t *create_requested_array(ipp_t *request);
 static void	create_subscriptions(cupsd_client_t *con, ipp_attribute_t *uri);
@@ -880,7 +881,7 @@ add_class(cupsd_client_t  *con,		/* I - Client connection */
     * Class doesn't exist; see if we have a printer of the same name...
     */
 
-    if ((pclass = cupsdFindPrinter(resource + 9)) != NULL)
+    if (cupsdFindPrinter(resource + 9))
     {
      /*
       * Yes, return an error...
@@ -2273,7 +2274,7 @@ add_printer(cupsd_client_t  *con,	/* I - Client connection */
     * Printer doesn't exist; see if we have a class of the same name...
     */
 
-    if ((printer = cupsdFindClass(resource + 10)) != NULL)
+    if (cupsdFindClass(resource + 10))
     {
      /*
       * Yes, return an error...
@@ -2691,7 +2692,22 @@ add_printer(cupsd_client_t  *con,	/* I - Client connection */
     need_restart_job = 1;
     changed_driver   = 1;
 
-    if (!strcmp(ppd_name, "raw"))
+    if (!strcmp(ppd_name, "everywhere"))
+    {
+      // Create IPP Everywhere PPD...
+      if (!printer->device_uri || (strncmp(printer->device_uri, "dnssd://", 8) && strncmp(printer->device_uri, "ipp://", 6) && strncmp(printer->device_uri, "ipps://", 7) && strncmp(printer->device_uri, "ippusb://", 9)))
+      {
+	send_ipp_status(con, IPP_INTERNAL_ERROR, _("IPP Everywhere driver requires an IPP connection."));
+	if (!modify)
+	  cupsdDeletePrinter(printer, 0);
+
+	return;
+      }
+
+      // Run a background thread to create the PPD...
+      _cupsThreadCreate((_cups_thread_func_t)create_local_bg_thread, printer);
+    }
+    else if (!strcmp(ppd_name, "raw"))
     {
      /*
       * Raw driver, remove any existing PPD file.
@@ -4891,7 +4907,7 @@ copy_printer_attrs(
   }
 
   if (printer->alert && (!ra || cupsArrayFind(ra, "printer-alert")))
-    ippAddString(con->response, IPP_TAG_PRINTER, IPP_TAG_STRING, "printer-alert", NULL, printer->alert);
+    ippAddOctetString(con->response, IPP_TAG_PRINTER, "printer-alert", printer->alert, (int)strlen(printer->alert));
 
   if (printer->alert_description && (!ra || cupsArrayFind(ra, "printer-alert-description")))
     ippAddString(con->response, IPP_TAG_PRINTER, IPP_TAG_TEXT, "printer-alert-description", NULL, printer->alert_description);
@@ -5015,6 +5031,9 @@ copy_printer_attrs(
 
   if (!ra || cupsArrayFind(ra, "queued-job-count"))
     add_queued_job_count(con, printer);
+
+  if (!ra || cupsArrayFind(ra, "uri-security-supported"))
+    ippAddString(con->response, IPP_TAG_PRINTER, IPP_TAG_KEYWORD, "uri-security-supported", NULL, is_encrypted ? "tls" : "none");
 
   copy_attrs(con->response, printer->attrs, ra, IPP_TAG_ZERO, 0, NULL);
   if (printer->ppd_attrs)
@@ -9353,11 +9372,10 @@ restart_job(cupsd_client_t  *con,	/* I - Client connection */
     cupsdLogJob(job, CUPSD_LOG_DEBUG,
 		"Restarted by \"%s\" with job-hold-until=%s.",
                 username, attr->values[0].string.text);
-    cupsdSetJobHoldUntil(job, attr->values[0].string.text, 0);
-
-    cupsdAddEvent(CUPSD_EVENT_JOB_CONFIG_CHANGED | CUPSD_EVENT_JOB_STATE,
-                  NULL, job, "Job restarted by user with job-hold-until=%s",
-		  attr->values[0].string.text);
+    cupsdSetJobHoldUntil(job, attr->values[0].string.text, 1);
+    cupsdSetJobState(job, IPP_JOB_HELD, CUPSD_JOB_DEFAULT,
+                     "Job restarted by user with job-hold-until=%s",
+                     attr->values[0].string.text);
   }
   else
   {
@@ -10866,17 +10884,13 @@ set_printer_defaults(
 
       case IPP_TAG_INTEGER :
       case IPP_TAG_ENUM :
-          sprintf(value, "%d", attr->values[0].integer);
-          printer->num_options = cupsAddOption(name, value,
-					       printer->num_options,
-					       &(printer->options));
+          printer->num_options = cupsAddIntegerOption(name, attr->values[0].integer, printer->num_options, &(printer->options));
           cupsdLogMessage(CUPSD_LOG_DEBUG,
 	                  "Setting %s to %s...", attr->name, value);
           break;
 
       case IPP_TAG_RANGE :
-          sprintf(value, "%d-%d", attr->values[0].range.lower,
-	          attr->values[0].range.upper);
+          snprintf(value, sizeof(value), "%d-%d", attr->values[0].range.lower, attr->values[0].range.upper);
           printer->num_options = cupsAddOption(name, value,
 					       printer->num_options,
 					       &(printer->options));
@@ -10885,10 +10899,7 @@ set_printer_defaults(
           break;
 
       case IPP_TAG_RESOLUTION :
-          sprintf(value, "%dx%d%s", attr->values[0].resolution.xres,
-	          attr->values[0].resolution.yres,
-		  attr->values[0].resolution.units == IPP_RES_PER_INCH ?
-		      "dpi" : "dpcm");
+          snprintf(value, sizeof(value), "%dx%d%s", attr->values[0].resolution.xres, attr->values[0].resolution.yres, attr->values[0].resolution.units == IPP_RES_PER_INCH ? "dpi" : "dpcm");
           printer->num_options = cupsAddOption(name, value,
 					       printer->num_options,
 					       &(printer->options));

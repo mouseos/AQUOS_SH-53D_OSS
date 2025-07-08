@@ -9,6 +9,7 @@ noinst_HEADERS = $(top_srcdir)/include/erofs_fs.h \
       $(top_srcdir)/include/erofs/config.h \
       $(top_srcdir)/include/erofs/decompress.h \
       $(top_srcdir)/include/erofs/defs.h \
+      $(top_srcdir)/include/erofs/diskbuf.h \
       $(top_srcdir)/include/erofs/err.h \
       $(top_srcdir)/include/erofs/exclude.h \
       $(top_srcdir)/include/erofs/flex-array.h \
@@ -19,16 +20,23 @@ noinst_HEADERS = $(top_srcdir)/include/erofs_fs.h \
       $(top_srcdir)/include/erofs/io.h \
       $(top_srcdir)/include/erofs/list.h \
       $(top_srcdir)/include/erofs/print.h \
+      $(top_srcdir)/include/erofs/tar.h \
       $(top_srcdir)/include/erofs/trace.h \
       $(top_srcdir)/include/erofs/xattr.h \
       $(top_srcdir)/include/erofs/compress_hints.h \
+      $(top_srcdir)/include/erofs/fragments.h \
+      $(top_srcdir)/include/erofs/xxhash.h \
+      $(top_srcdir)/include/erofs/rebuild.h \
       $(top_srcdir)/lib/liberofs_private.h
 
 noinst_HEADERS += compressor.h
 liberofs_la_SOURCES = config.c io.c cache.c super.c inode.c xattr.c exclude.c \
 		      namei.c data.c compress.c compressor.c zmap.c decompress.c \
-		      compress_hints.c hashmap.c sha256.c blobchunk.c dir.c
-liberofs_la_CFLAGS = -Wall -I$(top_srcdir)/include
+		      compress_hints.c hashmap.c sha256.c blobchunk.c dir.c \
+		      fragments.c rb_tree.c dedupe.c uuid_unparse.c uuid.c tar.c \
+		      block_list.c xxhash.c rebuild.c diskbuf.c
+
+liberofs_la_CFLAGS = -Wall ${libuuid_CFLAGS} -I$(top_srcdir)/include
 if ENABLE_LZ4
 liberofs_la_CFLAGS += ${LZ4_CFLAGS}
 liberofs_la_SOURCES += compressor_lz4.c
@@ -39,4 +47,9 @@ endif
 if ENABLE_LIBLZMA
 liberofs_la_CFLAGS += ${liblzma_CFLAGS}
 liberofs_la_SOURCES += compressor_liblzma.c
+endif
+
+liberofs_la_SOURCES += kite_deflate.c compressor_deflate.c
+if ENABLE_LIBDEFLATE
+liberofs_la_SOURCES += compressor_libdeflate.c
 endif

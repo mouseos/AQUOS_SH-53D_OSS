@@ -3,8 +3,8 @@
 # Copyright (c) 2003-2013 Thomas Graf <tgraf@suug.ch>
 #
 
-AC_INIT(libnl-doc, [3.7.0], [http://www.infradead.org/~tgr/libnl/])
-AC_CONFIG_MACRO_DIR([m4])
+AC_INIT(libnl-doc, [3.9.0], [http://www.infradead.org/~tgr/libnl/])
+AC_CONFIG_MACRO_DIR([../m4])
 AC_CONFIG_AUX_DIR([build-aux])
 AM_INIT_AUTOMAKE([foreign])
 m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES(yes)], [])

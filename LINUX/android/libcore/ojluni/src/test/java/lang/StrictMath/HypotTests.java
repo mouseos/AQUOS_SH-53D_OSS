@@ -36,6 +36,8 @@
  */
 package test.java.lang.StrictMath;
 
+import android.platform.test.annotations.LargeTest;
+
 import java.util.Random;
 import org.testng.annotations.Test;
 
@@ -726,25 +728,66 @@ public class HypotTests {
         }
     }
     */
+    @LargeTest
     @Test
     public void testAgainstTranslit_shard1() {
-        testAgainstTranslit(0, 50);
+        testAgainstTranslit(0, 20);
     }
 
+    @LargeTest
     @Test
     public void testAgainstTranslit_shard2() {
-        testAgainstTranslit(50, 100);
+        testAgainstTranslit(20, 40);
     }
 
+    @LargeTest
     @Test
     public void testAgainstTranslit_shard3() {
-        testAgainstTranslit(100, 150);
+        testAgainstTranslit(40, 60);
     }
 
+    @LargeTest
     @Test
     public void testAgainstTranslit_shard4() {
-        testAgainstTranslit(150, 200);
+        testAgainstTranslit(60, 80);
     }
+
+    @LargeTest
+    @Test
+    public void testAgainstTranslit_shard5() {
+        testAgainstTranslit(80, 100);
+    }
+
+    @LargeTest
+    @Test
+    public void testAgainstTranslit_shard6() {
+        testAgainstTranslit(100, 120);
+    }
+
+    @LargeTest
+    @Test
+    public void testAgainstTranslit_shard7() {
+        testAgainstTranslit(120, 140);
+    }
+
+    @LargeTest
+    @Test
+    public void testAgainstTranslit_shard8() {
+        testAgainstTranslit(140, 160);
+    }
+
+    @LargeTest
+    @Test
+    public void testAgainstTranslit_shard9() {
+        testAgainstTranslit(160, 180);
+    }
+
+    @LargeTest
+    @Test
+    public void testAgainstTranslit_shard10() {
+        testAgainstTranslit(180, 200);
+    }
+
 
     private void testAgainstTranslit(int fromI, int toI) {
         // Make the increment twice the ulp value in case the random

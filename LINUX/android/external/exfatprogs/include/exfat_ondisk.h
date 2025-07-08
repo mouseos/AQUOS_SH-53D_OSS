@@ -39,6 +39,7 @@
 #define DENTRY_SIZE_BITS	5
 /* exFAT allows 8388608(256MB) directory entries */
 #define MAX_EXFAT_DENTRIES	8388608
+#define MIN_FILE_DENTRIES	3
 
 /* dentry types */
 #define MSDOS_DELETED		0xE5	/* deleted mark */
@@ -95,10 +96,6 @@
 #define EXFAT_FIRST_CLUSTER		(2)
 #define EXFAT_RESERVED_CLUSTERS		(2)
 
-/* SHARP_EXTEND [FSI-22-6-1] Initialize BootCode Start */
-/* Field value BootCode of Main Boot Sector */
-#define EXFAT_MAIN_BOOT_SECTOR_BOOTCODE 0xF4
-/* SHARP_EXTEND [FSI-22-6-1] Initialize BootCode End */
 
 /* EXFAT BIOS parameter block (64 bytes) */
 struct bpb64 {
@@ -135,17 +132,6 @@ struct pbr {
 	__le16 signature;
 };
 
-/* Extended Boot Sector */
-struct exbs {
-	__u8 zero[510];
-	__le16 signature;
-};
-
-/* Extended Boot Record (8 sectors) */
-struct expbr {
-	struct exbs eb[8];
-};
-
 #define VOLUME_LABEL_MAX_LEN	11
 #define ENTRY_NAME_MAX		15
 
@@ -171,8 +157,10 @@ struct exfat_dentry {
 			__le16 access_date;
 			__u8 create_time_ms;
 			__u8 modify_time_ms;
-			__u8 access_time_ms;
-			__u8 reserved2[9];
+			__u8 create_tz;
+			__u8 modify_tz;
+			__u8 access_tz;
+			__u8 reserved2[7];
 		} __attribute__((packed)) file; /* file directory entry */
 		struct {
 			__u8 flags;

@@ -9,12 +9,7 @@
       ]
     },
     {
-      "name": "CtsLibcoreOjTestCases",
-      "options": [
-        {
-          "include-filter": "test.java.nio.file.attribute"
-        }
-      ]
+      "name": "CtsLibcoreOjTestCases_nio_file_attribute"
     }
   ]
 }

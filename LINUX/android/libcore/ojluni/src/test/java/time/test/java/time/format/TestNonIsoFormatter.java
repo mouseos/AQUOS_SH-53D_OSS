@@ -32,6 +32,11 @@ package test.java.time.format;
 
 import static org.testng.Assert.assertEquals;
 
+import dalvik.annotation.compat.VersionCodes;
+
+import libcore.test.annotation.NonMts;
+import libcore.test.reasons.NonMtsReasons;
+
 import java.time.LocalDate;
 import java.time.chrono.ChronoLocalDate;
 import java.time.chrono.Chronology;
@@ -120,7 +125,7 @@ public class TestNonIsoFormatter {
             // Android-changed: CLDR data has changed.
             { ISO8601,  Locale.ENGLISH, "ISO-8601 Calendar" },
             { BUDDHIST, Locale.ENGLISH, "Buddhist Calendar" },
-            { HIJRAH,   Locale.ENGLISH, "Islamic Calendar (Umm al-Qura)" },
+            { HIJRAH,   Locale.ENGLISH, "Hijri Calendar (Umm al-Qura)" },
             { JAPANESE, Locale.ENGLISH, "Japanese Calendar" },
             { MINGUO,   Locale.ENGLISH, "Minguo Calendar" },
 
@@ -133,7 +138,7 @@ public class TestNonIsoFormatter {
             { BUDDHIST, thTH, "\u0e1b\u0e0f\u0e34\u0e17\u0e34\u0e19\u0e1e\u0e38\u0e17\u0e18" },
 
             { HIJRAH,   ARABIC, "\u0627\u0644\u062a\u0642\u0648\u064a\u0645 "
-                                + "\u0627\u0644\u0625\u0633\u0644\u0627\u0645\u064a "
+                                + "\u0627\u0644\u0647\u062c\u0631\u064a "
                                 + "(\u0623\u0645 \u0627\u0644\u0642\u0631\u0649)" },
         };
     }
@@ -176,6 +181,8 @@ public class TestNonIsoFormatter {
         dtf.parse(text);
     }
 
+    @NonMts(reason = NonMtsReasons.ICU_VERSION_DEPENDENCY,
+        disabledUntilSdk = VersionCodes.VANILLA_ICE_CREAM)
     @Test(dataProvider="chrono_names")
     public void test_chronoNames(Chronology chrono, Locale locale, String expected) {
         DateTimeFormatter dtf = new DateTimeFormatterBuilder().appendChronologyText(TextStyle.SHORT)

@@ -210,12 +210,7 @@ int BasicMBRData::ReadMBRData(DiskIO * theDisk, int checkBlockSize) {
          } // for
       } // if
 
-/* SHARP_EXTEND [19-31-1] vold sd encrypt Start
       if (MBRSignature != MBR_SIGNATURE) {
- */
-      if (MBRSignature != MBR_SIGNATURE && MBRSignature != MBR_SIGNATURE_REVERSE) {
-/* SHARP_EXTEND [19-31-1] vold sd encrypt End */
-
          allOK = 0;
          state = invalid;
       } // if
@@ -316,12 +311,7 @@ int BasicMBRData::ReadLogicalParts(uint64_t extendedStart, int partNum) {
          ReverseBytes(&ebr.partitions[1].lengthLBA, 4);
       } // if/else/if
 
-/* SHARP_EXTEND [19-31-1] vold sd encrypt Start
       if (ebr.MBRSignature != MBR_SIGNATURE) {
- */
-      if (ebr.MBRSignature != MBR_SIGNATURE && ebr.MBRSignature != MBR_SIGNATURE_REVERSE) {
-/* SHARP_EXTEND [19-31-1] vold sd encrypt End */
-
          allOK = -1;
          cerr << "EBR signature for logical partition invalid; read 0x";
          cerr.fill('0');

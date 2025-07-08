@@ -36,12 +36,16 @@ package test.java.nio.Buffer;
 
 
 import java.nio.*;
+import java.util.function.Supplier;
 
 
 
 
 
 
+
+
+import static org.testng.Assert.assertEquals;
 
 
 public class BasicDouble
@@ -98,6 +102,18 @@ public class BasicDouble
         }
     }
 
+    private static void absBulkGet(DoubleBuffer b) {
+        int n = b.capacity();
+        int len = n - 7*2;
+        double[] a = new double[n + 7];
+        b.position(42);
+        b.get(7, a, 7, len);
+        ck(b, b.position() == 42);
+        for (int i = 0; i < len; i++) {
+            ck(b, (long)a[i + 7], (long)((double)ic(i)));
+        }
+    }
+
     private static void relPut(DoubleBuffer b) {
         int n = b.capacity();
         b.clear();
@@ -145,6 +161,20 @@ public class BasicDouble
                      + " put into same buffer");
             }
         }
+    }
+
+    private static void absBulkPutArray(DoubleBuffer b) {
+        int n = b.capacity();
+        b.clear();
+        int lim = n - 7;
+        int len = lim - 7;
+        b.limit(lim);
+        double[] a = new double[len + 7];
+        for (int i = 0; i < len; i++)
+            a[i + 7] = (double)ic(i);
+        b.position(42);
+        b.put(7, a, 7, len);
+        ck(b, b.position() == 42);
     }
 
     //6231529
@@ -465,6 +495,67 @@ public class BasicDouble
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     private static void fail(String problem,
                              DoubleBuffer xb, DoubleBuffer yb,
                              double x, double y) {
@@ -514,7 +605,11 @@ public class BasicDouble
         tryCatch(DoubleBuffer.wrap(t), ex, thunk);
     }
 
+    // Android-changed: Add @SuppressWarnings as the operation is tested to be reflexive.
+    @SuppressWarnings({"SelfComparison", "SelfEquals"})
     public static void test(int level, final DoubleBuffer b, boolean direct) {
+
+        show(level, b);
 
         if (direct != b.isDirect())
             fail("Wrong direction", b);
@@ -536,6 +631,9 @@ public class BasicDouble
 
         bulkPutBuffer(b);
         relGet(b);
+
+        absBulkPutArray(b);
+        absBulkGet(b);
 
 
 
@@ -593,9 +691,10 @@ public class BasicDouble
         catchIndexOutOfBounds(b, () -> b.get(b.limit()));
         catchIndexOutOfBounds(b, () -> b.get(-1));
         catchIndexOutOfBounds(b, () -> b.put(b.limit(), (double)42));
-        DoubleBuffer intermediate = (DoubleBuffer) b.position(0).mark();
         tryCatch(b, InvalidMarkException.class,
-                () -> intermediate.compact().reset());
+                // Android-changed: Explicit casting due to @CovariantReturnType methods.
+                // () -> b.position(0).mark().compact().reset());
+                () -> ((DoubleBuffer) b.position(0).mark()).compact().reset());
 
         try {
             b.position(b.limit() + 1);
@@ -638,6 +737,24 @@ public class BasicDouble
         }
 
         // Exceptions in absolute bulk and slice operations
+
+        catchNullArgument(b, () -> b.get(7, null, 0, 42));
+        catchNullArgument(b, () -> b.put(7, (double[])null, 0, 42));
+
+        double[] tmpa = new double[42];
+        catchIndexOutOfBounds(b, () -> b.get(7, tmpa, -1, 42));
+        catchIndexOutOfBounds(b, () -> b.get(7, tmpa, 42, 1));
+        catchIndexOutOfBounds(b, () -> b.get(7, tmpa, 41, -1));
+        catchIndexOutOfBounds(b, () -> b.get(-1, tmpa, 0, 1));
+        catchIndexOutOfBounds(b, () -> b.get(b.limit(), tmpa, 0, 1));
+        catchIndexOutOfBounds(b, () -> b.get(b.limit() - 41, tmpa, 0, 42));
+
+        catchIndexOutOfBounds(b, () -> b.put(7, tmpa, -1, 42));
+        catchIndexOutOfBounds(b, () -> b.put(7, tmpa, 42, 1));
+        catchIndexOutOfBounds(b, () -> b.put(7, tmpa, 41, -1));
+        catchIndexOutOfBounds(b, () -> b.put(-1, tmpa, 0, 1));
+        catchIndexOutOfBounds(b, () -> b.put(b.limit(), tmpa, 0, 1));
+        catchIndexOutOfBounds(b, () -> b.put(b.limit() - 41, tmpa, 0, 42));
 
         catchIndexOutOfBounds(b, () -> b.slice(-1, 7));
         catchIndexOutOfBounds(b, () -> b.slice(b.limit() + 1, 7));
@@ -721,6 +838,7 @@ public class BasicDouble
 
 
                     ) {
+                    out.println("[" + i + "] " + x + " != " + y);
                 }
             }
             fail("Identical buffers not equal", b, b2);
@@ -748,6 +866,12 @@ public class BasicDouble
         // Check equals and compareTo with interesting values
         for (double x : VALUES) {
             DoubleBuffer xb = DoubleBuffer.wrap(new double[] { x });
+            if (xb.compareTo(xb) != 0) {
+                fail("compareTo not reflexive", xb, xb, x, x);
+            }
+            if (!xb.equals(xb)) {
+                fail("equals not reflexive", xb, xb, x, x);
+            }
             for (double y : VALUES) {
                 DoubleBuffer yb = DoubleBuffer.wrap(new double[] { y });
                 if (xb.compareTo(yb) != - yb.compareTo(xb)) {
@@ -850,7 +974,104 @@ public class BasicDouble
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+        // Read-only views
+
+        b.rewind();
+        final DoubleBuffer rb = b.asReadOnlyBuffer();
+        if (!b.equals(rb))
+            fail("Buffer not equal to read-only view", b, rb);
+        show(level + 1, rb);
+
+        catchReadOnlyBuffer(b, () -> relPut(rb));
+        catchReadOnlyBuffer(b, () -> absPut(rb));
+        catchReadOnlyBuffer(b, () -> bulkPutArray(rb));
+        catchReadOnlyBuffer(b, () -> bulkPutBuffer(rb));
+        catchReadOnlyBuffer(b, () -> absBulkPutArray(rb));
+
+        // put(DoubleBuffer) should not change source position
+        final DoubleBuffer src = DoubleBuffer.allocate(1);
+        catchReadOnlyBuffer(b, () -> rb.put(src));
+        ck(src, src.position(), 0);
+
+        catchReadOnlyBuffer(b, () -> rb.compact());
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        if (rb.getClass().getName().startsWith("java.nio.Heap")) {
+            catchReadOnlyBuffer(b, () -> rb.array());
+            catchReadOnlyBuffer(b, () -> rb.arrayOffset());
+            if (rb.hasArray()) {
+                fail("Read-only heap buffer's backing array is accessible", rb);
+            }
+        }
+
+        // Bulk puts from read-only buffers
+
+        b.clear();
+        rb.rewind();
+        b.put(rb);
+
+
+
+
+
+
+
+
+
+
+
+        relPut(b);                       // Required by testViews
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
 
 
 
@@ -898,6 +1119,7 @@ public class BasicDouble
         int offset = 47;
         int length = 900;
         final DoubleBuffer b = DoubleBuffer.wrap(ba, offset, length);
+        show(0, b);
         ck(b, b.capacity(), ba.length);
         ck(b, b.position(), offset);
         ck(b, b.limit(), offset + length);
@@ -939,6 +1161,26 @@ public class BasicDouble
 
     }
 
+    public static void testToString() {
+        final int cap = 10;
+
+
+
+
+
+
+
+
+
+
+        DoubleBuffer nondirect1 = DoubleBuffer.allocate(cap);
+        if (!nondirect1.toString().equals(Basic.toString(nondirect1))) {
+           fail("Heap buffer toString is incorrect: "
+                  + nondirect1.toString() + " vs " + Basic.toString(nondirect1));
+        }
+
+    }
+
     public static void test() {
         testAllocate();
         test(0, DoubleBuffer.allocate(7 * 1024), false);
@@ -960,6 +1202,80 @@ public class BasicDouble
 
         putBuffer();
 
+
+        testToString();
+
+        // Android-added: Add API coverage for get(), put().
+        testGetPutArrayWithIndex();
+
+        testPutBuffer();
+
     }
 
+    // BEGIN Android-added: Add API coverage for get(), put().
+    private static void testGetPutArrayWithIndex() {
+        DoubleBuffer buf = DoubleBuffer.allocate(16);
+        double firstElement = 11, secondElement = 12;
+        buf.put(firstElement);
+        buf.put(secondElement);
+        buf.position(0);
+        double[] arr = new double[] { 4, 3, 2, 1 };
+        buf.put(2, arr);
+        double[] actual = new double[4];
+        buf.get(2, actual);
+        assertEquals(actual, arr);
+        buf.get(0, actual);
+        assertEquals(actual, new double[] {firstElement, secondElement, 4, 3});
+    }
+
+    private static void testPutBuffer() {
+        Supplier<DoubleBuffer>[] newBuffers = new Supplier[] {
+                () -> DoubleBuffer.allocate(512),
+                () -> DoubleBuffer.allocate(512).slice(100, 412),
+                () -> ByteBuffer.allocate(512 * Double.BYTES).order(ByteOrder.LITTLE_ENDIAN).asDoubleBuffer(),
+                () -> ByteBuffer.allocate(512 * Double.BYTES).order(ByteOrder.BIG_ENDIAN).asDoubleBuffer(),
+                () -> ByteBuffer.allocateDirect(512 * Double.BYTES).order(ByteOrder.LITTLE_ENDIAN).asDoubleBuffer(),
+                () -> ByteBuffer.allocateDirect(512 * Double.BYTES).order(ByteOrder.BIG_ENDIAN).asDoubleBuffer(),
+                () -> ByteBuffer.allocateDirect(512 * Double.BYTES).asDoubleBuffer().slice(100, 412),
+                () -> ((ByteBuffer) ByteBuffer.allocateDirect(512 * Double.BYTES)
+                        .order(ByteOrder.LITTLE_ENDIAN).position(100)).asDoubleBuffer(),
+                () -> ((ByteBuffer) ByteBuffer.allocateDirect(512 * Double.BYTES)
+                        .order(ByteOrder.BIG_ENDIAN).position(100)).asDoubleBuffer(),
+        };
+
+        double[] samples = new double[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+        for (var newSrc : newBuffers) {
+            for (var newDst : newBuffers) {
+                double[] out = new double[10];
+                DoubleBuffer src = newSrc.get();
+                src.put(samples);
+                src.get(0, out);
+                assertEquals(out, samples);
+                assertEquals(src.get(10), (double) 0);
+                src.limit(10);
+                src.rewind();
+
+                out = new double[10];
+                DoubleBuffer dst = newDst.get();
+                dst.put(src);
+                dst.get(0, out);
+                assertEquals(out, samples);
+                dst.rewind();
+
+                dst.put(6, src, 1, 2);
+                assertEquals(dst.get(6), (double) 1);
+                assertEquals(dst.get(7), (double) 2);
+                assertEquals(dst.get(8), (double) 8);
+                assertEquals(dst.get(10), (double) 0);
+
+                dst.put(12, src, 2, 2);
+                out = new double[5];
+                dst.get(10, out);
+                assertEquals(out, new double[] {0, 0, 2, 3, 0});
+
+            }
+        }
+    }
+
+    // END Android-added: Add API coverage for get(), put().
 }

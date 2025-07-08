@@ -1,12 +1,18 @@
-#include <linux/netlink.h>
+/* SPDX-License-Identifier: LGPL-2.1-only */
+
+#include "nl-default.h"
+
 #include <stdio.h>
 #include <time.h>
 #include <check.h>
 
-#include "netlink-private/types.h"
-#include "netlink/route/cls/ematch.h"
+#include <linux/netlink.h>
+
+#include <netlink/route/cls/ematch.h>
+
 #include "cksuite-all.h"
-#include "netlink-private/nl-auto.h"
+#include "nl-aux-route/nl-route.h"
+#include "nl-priv-dynamic-route/nl-priv-dynamic-route.h"
 
 #define MAX_DEPTH 6
 #define MAX_CHILDREN 5
@@ -32,12 +38,6 @@ static long long my_pow(long long x, long long y)
 	return ret;
 }
 
-static long int generate_random(long int max)
-{
-	srandom(time(NULL) + id);
-	return (random() % max);
-}
-
 static int build_children(struct nl_list_head *parent)
 {
 	int i, num = 0;
@@ -51,7 +51,7 @@ static int build_children(struct nl_list_head *parent)
 		return 0;
 	}
 
-	num = generate_random(MAX_CHILDREN + 1);
+	num = _nltst_rand_u32() % ((unsigned)(MAX_CHILDREN + 1));
 	for (i = 0; i < num; ++i) {
 		child = rtnl_ematch_alloc();
 		if (!child) {
@@ -76,7 +76,7 @@ static void dump_ematch_list(struct nl_list_head *head, int *result, int *index)
 {
 	struct rtnl_ematch *pos = NULL;
 
-	nl_list_for_each_entry (pos, head, e_list) {
+	nl_list_for_each_entry(pos, head, e_list) {
 		if (!nl_list_empty(&pos->e_childs))
 			dump_ematch_list(&pos->e_childs, result, index);
 		result[*index] = pos->e_id;

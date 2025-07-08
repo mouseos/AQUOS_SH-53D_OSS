@@ -32,20 +32,17 @@ package test.java.util.HashMap;
 import java.util.HashMap;
 import java.util.Map;
 
-import org.testng.Assert;
-import org.testng.annotations.Test;
-
 public class SetValue {
     static final String key      = "key";
     static final String oldValue = "old";
     static final String newValue = "new";
 
-    @Test
-    public void test() throws Exception {
-        Map<String, String> m = new HashMap<>();
+    public static void main(String[] args) throws Exception {
+        Map m = new HashMap();
         m.put(key, oldValue);
-        Map.Entry<String, String> e = (Map.Entry<String, String>) m.entrySet().iterator().next();
+        Map.Entry e = (Map.Entry) m.entrySet().iterator().next();
         Object returnVal = e.setValue(newValue);
-        Assert.assertEquals(returnVal, oldValue);
+        if (!returnVal.equals(oldValue))
+            throw new RuntimeException("Return value: " + returnVal);
     }
 }

@@ -16,15 +16,19 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
+#include "nl-default.h"
+
+#include <linux/if_tunnel.h>
+
 #include <netlink/netlink.h>
 #include <netlink/attr.h>
 #include <netlink/utils.h>
 #include <netlink/object.h>
 #include <netlink/route/rtnl.h>
 #include <netlink/route/link/ipip.h>
-#include <netlink-private/route/link/api.h>
-#include <linux/if_tunnel.h>
+
+#include "nl-route.h"
+#include "link-api.h"
 
 #define IPIP_ATTR_LINK          (1 << 0)
 #define IPIP_ATTR_LOCAL         (1 << 1)
@@ -578,12 +582,12 @@ int rtnl_link_ipip_get_fwmark(struct rtnl_link *link, uint32_t *fwmark)
 	return 0;
 }
 
-static void __init ipip_init(void)
+static void _nl_init ipip_init(void)
 {
 	rtnl_link_register_info(&ipip_info_ops);
 }
 
-static void __exit ipip_exit(void)
+static void _nl_exit ipip_exit(void)
 {
 	rtnl_link_unregister_info(&ipip_info_ops);
 }

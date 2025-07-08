@@ -173,8 +173,10 @@ public class ImplicitStringConcatBoundaries {
         test("foo-2147483648",              "foo" + INT_MIN_1);
         test("foo-2147483648",              "foo" + INT_MIN_2);
 
-        test("foo1.17549435E-38",           "foo" + FLOAT_MIN_NORM_1);
-        test("foo1.17549435E-38",           "foo" + FLOAT_MIN_NORM_2);
+        // Android-changed: Add alternative to allow for change in toString() conversion for
+        // Float.MIN_VALUE (b/328666063).
+        test("foo1.1754944E-38", "foo1.17549435E-38", "foo" + FLOAT_MIN_NORM_1);
+        test("foo1.1754944E-38", "foo1.17549435E-38", "foo" + FLOAT_MIN_NORM_2);
         test("foo-126.0",                   "foo" + FLOAT_MIN_EXP_1);
         test("foo-126.0",                   "foo" + FLOAT_MIN_EXP_2);
         test("foo1.4E-45",                  "foo" + FLOAT_MIN_1);
@@ -198,10 +200,23 @@ public class ImplicitStringConcatBoundaries {
     }
 
     public static void test(String expected, String actual) {
+        test(expected, null, actual);
+    }
+
+    // Android-changed: Add alternative to allow for change in toString() conversion for
+    // Float.MIN_VALUE (b/328666063).
+    public static void test(String expected, String alternative, String actual) {
        if (!expected.equals(actual)) {
            StringBuilder sb = new StringBuilder();
            sb.append("Expected = ");
            sb.append(expected);
+           if (alternative != null) {
+               if (alternative.equals(actual)) {
+                   return;
+               }
+               sb.append(", alt = ");
+               sb.append(actual);
+           }
            sb.append(", actual = ");
            sb.append(actual);
            throw new IllegalStateException(sb.toString());

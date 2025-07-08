@@ -1,0 +1,3 @@
+&fih_cpu {
+	fih_cpu,cpuinfo = "MT6833V_NZA";
+};

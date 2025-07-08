@@ -5,10 +5,16 @@
  * Copyright (c) 2007 Secure Computing Corporation
  */
 
-#include <netlink-private/netlink.h>
+#include "nl-default.h"
+
 #include <netlink/netfilter/nfnl.h>
 #include <netlink/netfilter/netfilter.h>
 #include <netlink/netfilter/log_msg.h>
+#include <netlink/netfilter/ct.h>
+#include <netlink/route/link.h>
+
+#include "nl-priv-dynamic-core/object-api.h"
+#include "nl-netfilter.h"
 
 /** @cond SKIP */
 #define LOG_MSG_ATTR_FAMILY		(1UL << 0)
@@ -371,7 +377,9 @@ uint32_t nfnl_log_msg_get_physoutdev(const struct nfnl_log_msg *msg)
 
 void nfnl_log_msg_set_hwaddr(struct nfnl_log_msg *msg, uint8_t *hwaddr, int len)
 {
-	if (len > sizeof(msg->log_msg_hwaddr))
+	if (len < 0)
+		len = 0;
+	else if (((unsigned)len) > sizeof(msg->log_msg_hwaddr))
 		len = sizeof(msg->log_msg_hwaddr);
 	msg->log_msg_hwaddr_len = len;
 	memcpy(msg->log_msg_hwaddr, hwaddr, len);

@@ -9,16 +9,20 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/tc.h>
+#include "nl-default.h"
+
+#include <linux/if_arp.h>
+#include <linux/gen_stats.h>
+
+#include <linux/atm.h>
+
 #include <netlink/netlink.h>
 #include <netlink/utils.h>
 #include <netlink/route/rtnl.h>
 #include <netlink/route/link.h>
 #include <netlink/route/tc.h>
-#include <netlink-private/route/tc-api.h>
 
-#include "netlink-private/utils.h"
+#include "tc-api.h"
 
 /** @cond SKIP */
 
@@ -105,11 +109,11 @@ int rtnl_tc_msg_parse(struct nlmsghdr *n, struct rtnl_tc *tc)
 			return err;
 
 		if (tbs[TCA_STATS_BASIC]) {
-			struct gnet_stats_basic *bs;
+			struct gnet_stats_basic bs;
 			
-			bs = nla_data(tbs[TCA_STATS_BASIC]);
-			tc->tc_stats[RTNL_TC_BYTES]	= bs->bytes;
-			tc->tc_stats[RTNL_TC_PACKETS]	= bs->packets;
+			memcpy(&bs, nla_data(tbs[TCA_STATS_BASIC]), sizeof(bs));
+			tc->tc_stats[RTNL_TC_BYTES]	= bs.bytes;
+			tc->tc_stats[RTNL_TC_PACKETS]	= bs.packets;
 		}
 
 		if (tbs[TCA_STATS_RATE_EST]) {
@@ -142,16 +146,17 @@ int rtnl_tc_msg_parse(struct nlmsghdr *n, struct rtnl_tc *tc)
 			goto compat_xstats;
 	} else {
 		if (tb[TCA_STATS]) {
-			struct tc_stats *st = nla_data(tb[TCA_STATS]);
+			struct tc_stats st;
 
-			tc->tc_stats[RTNL_TC_BYTES]	= st->bytes;
-			tc->tc_stats[RTNL_TC_PACKETS]	= st->packets;
-			tc->tc_stats[RTNL_TC_RATE_BPS]	= st->bps;
-			tc->tc_stats[RTNL_TC_RATE_PPS]	= st->pps;
-			tc->tc_stats[RTNL_TC_QLEN]	= st->qlen;
-			tc->tc_stats[RTNL_TC_BACKLOG]	= st->backlog;
-			tc->tc_stats[RTNL_TC_DROPS]	= st->drops;
-			tc->tc_stats[RTNL_TC_OVERLIMITS]= st->overlimits;
+			memcpy(&st, nla_data(tb[TCA_STATS]), sizeof(st));
+			tc->tc_stats[RTNL_TC_BYTES]	= st.bytes;
+			tc->tc_stats[RTNL_TC_PACKETS]	= st.packets;
+			tc->tc_stats[RTNL_TC_RATE_BPS]	= st.bps;
+			tc->tc_stats[RTNL_TC_RATE_PPS]	= st.pps;
+			tc->tc_stats[RTNL_TC_QLEN]	= st.qlen;
+			tc->tc_stats[RTNL_TC_BACKLOG]	= st.backlog;
+			tc->tc_stats[RTNL_TC_DROPS]	= st.drops;
+			tc->tc_stats[RTNL_TC_OVERLIMITS]= st.overlimits;
 
 			tc->ce_mask |= TCA_ATTR_STATS;
 		}
@@ -666,14 +671,14 @@ int rtnl_tc_calc_bufsize(int txtime, int rate)
 /**
  * Calculate the binary logarithm for a specific cell size
  * @arg cell_size	Size of cell, must be a power of two.
- * @return Binary logirhtm of cell size or a negative error code.
+ * @return Binary logarithm of cell size or a negative error code.
  */
 int rtnl_tc_calc_cell_log(int cell_size)
 {
 	int i;
 
 	for (i = 0; i < 32; i++)
-		if ((1 << i) == cell_size)
+		if ((((uint32_t)1u) << i) == ((uint32_t)cell_size))
 			return i;
 
 	return -NLE_INVAL;
@@ -971,14 +976,12 @@ uint64_t rtnl_tc_compare(struct nl_object *aobj, struct nl_object *bobj,
 	struct rtnl_tc *b = TC_CAST(bobj);
 	uint64_t diff = 0;
 
-#define TC_DIFF(ATTR, EXPR) ATTR_DIFF(attrs, TCA_ATTR_##ATTR, a, b, EXPR)
-
-	diff |= TC_DIFF(HANDLE,		a->tc_handle != b->tc_handle);
-	diff |= TC_DIFF(PARENT,		a->tc_parent != b->tc_parent);
-	diff |= TC_DIFF(IFINDEX,	a->tc_ifindex != b->tc_ifindex);
-	diff |= TC_DIFF(KIND,		strcmp(a->tc_kind, b->tc_kind));
-
-#undef TC_DIFF
+#define _DIFF(ATTR, EXPR) ATTR_DIFF(attrs, ATTR, a, b, EXPR)
+	diff |= _DIFF(TCA_ATTR_HANDLE, a->tc_handle != b->tc_handle);
+	diff |= _DIFF(TCA_ATTR_PARENT, a->tc_parent != b->tc_parent);
+	diff |= _DIFF(TCA_ATTR_IFINDEX, a->tc_ifindex != b->tc_ifindex);
+	diff |= _DIFF(TCA_ATTR_KIND, strcmp(a->tc_kind, b->tc_kind));
+#undef _DIFF
 
 	return diff;
 }
@@ -1019,7 +1022,7 @@ int rtnl_tc_register(struct rtnl_tc_ops *ops)
 	/*
 	 * Initialiation hack, make sure list is initialized when
 	 * the first tc module registers. Putting this in a
-	 * separate __init would required correct ordering of init
+	 * separate _nl_init would required correct ordering of init
 	 * functions
 	 */
 	if (!init) {

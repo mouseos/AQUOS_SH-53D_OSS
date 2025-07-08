@@ -16,15 +16,19 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
+#include "nl-default.h"
+
+#include <linux/if_tunnel.h>
+
 #include <netlink/netlink.h>
 #include <netlink/attr.h>
 #include <netlink/utils.h>
 #include <netlink/object.h>
 #include <netlink/route/rtnl.h>
 #include <netlink/route/link/sit.h>
-#include <netlink-private/route/link/api.h>
-#include <linux/if_tunnel.h>
+
+#include "nl-route.h"
+#include "link-api.h"
 
 #define SIT_ATTR_LINK          (1 << 0)
 #define SIT_ATTR_LOCAL         (1 << 1)
@@ -858,12 +862,12 @@ int rtnl_link_sit_get_fwmark(struct rtnl_link *link, uint32_t *fwmark)
 	return 0;
 }
 
-static void __init sit_init(void)
+static void _nl_init sit_init(void)
 {
 	rtnl_link_register_info(&sit_info_ops);
 }
 
-static void __exit sit_exit(void)
+static void _nl_exit sit_exit(void)
 {
 	rtnl_link_unregister_info(&sit_info_ops);
 }

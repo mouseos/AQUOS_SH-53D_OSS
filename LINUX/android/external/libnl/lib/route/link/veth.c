@@ -16,17 +16,20 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
+#include "nl-default.h"
+
+#include <linux/if_link.h>
+#include <linux/veth.h>
+
 #include <netlink/netlink.h>
 #include <netlink/attr.h>
 #include <netlink/utils.h>
 #include <netlink/object.h>
 #include <netlink/route/rtnl.h>
-#include <netlink-private/route/link/api.h>
 #include <netlink/route/link/veth.h>
 
-#include <linux/if_link.h>
-#include <linux/veth.h>
+#include "nl-route.h"
+#include "link-api.h"
 
 static struct nla_policy veth_policy[VETH_INFO_MAX+1] = {
 	[VETH_INFO_PEER]	= { .minlen = sizeof(struct ifinfomsg) },
@@ -289,12 +292,12 @@ int rtnl_link_veth_add(struct nl_sock *sock, const char *name,
 
 /** @} */
 
-static void __init veth_init(void)
+static void _nl_init veth_init(void)
 {
 	rtnl_link_register_info(&veth_info_ops);
 }
 
-static void __exit veth_exit(void)
+static void _nl_exit veth_exit(void)
 {
 	rtnl_link_unregister_info(&veth_info_ops);
 }

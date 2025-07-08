@@ -11,7 +11,7 @@
 
 static int migrate_block(struct f2fs_sb_info *sbi, u64 from, u64 to)
 {
-	void *raw = calloc(BLOCK_SZ, 1);
+	void *raw = calloc(F2FS_BLKSIZE, 1);
 	struct seg_entry *se;
 	struct f2fs_summary sum;
 	u64 offset;
@@ -49,7 +49,7 @@ static int migrate_block(struct f2fs_sb_info *sbi, u64 from, u64 to)
 	/* if data block, read node and update node block */
 	if (IS_DATASEG(type))
 		update_data_blkaddr(sbi, le32_to_cpu(sum.nid),
-				le16_to_cpu(sum.ofs_in_node), to);
+				le16_to_cpu(sum.ofs_in_node), to, NULL);
 	else
 		update_nat_blkaddr(sbi, 0, le32_to_cpu(sum.nid), to);
 

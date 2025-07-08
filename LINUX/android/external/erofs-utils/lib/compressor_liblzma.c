@@ -56,11 +56,16 @@ static int erofs_compressor_liblzma_setlevel(struct erofs_compress *c,
 					     int compression_level)
 {
 	struct erofs_liblzma_context *ctx = c->private_data;
+	u32 preset;
 
 	if (compression_level < 0)
-		compression_level = LZMA_PRESET_DEFAULT;
+		preset = LZMA_PRESET_DEFAULT;
+	else if (compression_level >= 100)
+		preset = (compression_level - 100) | LZMA_PRESET_EXTREME;
+	else
+		preset = compression_level;
 
-	if (lzma_lzma_preset(&ctx->opt, compression_level))
+	if (lzma_lzma_preset(&ctx->opt, preset))
 		return -EINVAL;
 
 	/* XXX: temporary hack */
@@ -83,7 +88,6 @@ static int erofs_compressor_liblzma_init(struct erofs_compress *c)
 {
 	struct erofs_liblzma_context *ctx;
 
-	c->alg = &erofs_compressor_lzma;
 	ctx = malloc(sizeof(*ctx));
 	if (!ctx)
 		return -ENOMEM;
@@ -95,9 +99,8 @@ static int erofs_compressor_liblzma_init(struct erofs_compress *c)
 }
 
 const struct erofs_compressor erofs_compressor_lzma = {
-	.name = "lzma",
 	.default_level = LZMA_PRESET_DEFAULT,
-	.best_level = LZMA_PRESET_EXTREME,
+	.best_level = 109,
 	.init = erofs_compressor_liblzma_init,
 	.exit = erofs_compressor_liblzma_exit,
 	.setlevel = erofs_compressor_liblzma_setlevel,

@@ -13,14 +13,9 @@ cc_binary {
     name: "fsck.exfat",
 
     srcs: [
-        "de_iter.c",
         "fsck.c",
         "repair.c",
     ],
     defaults: ["exfatprogs-defaults"],
-/* SHARP_EXTEND [FSI-22-3-1] Add fsck timed out Start */
-    shared_libs: ["liblog"],
-    cflags: ["-DEXFSCK_CHECK_TIMEOUT_DIR"],
-/* SHARP_EXTEND [FSI-22-3-1] Add fsck timed out End */
     static_libs: ["libexfat"],
 }

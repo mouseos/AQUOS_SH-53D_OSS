@@ -163,9 +163,4 @@ public class Inflater {
     @UnsupportedAppUsage(maxTargetSdk = 30, trackingBug = 170729553)
     private int off;
 
-    private final java.util.zip.ZStreamRef zsRef;
-
-    {
-        zsRef = null;
-    }
 }

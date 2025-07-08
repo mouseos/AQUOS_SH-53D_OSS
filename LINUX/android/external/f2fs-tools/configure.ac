@@ -144,6 +144,8 @@ AC_CHECK_HEADERS(m4_flatten([
 	linux/fs.h
 	linux/hdreg.h
 	linux/limits.h
+	linux/loop.h
+	linux/major.h
 	linux/posix_acl.h
 	linux/types.h
 	linux/xattr.h
@@ -187,8 +189,6 @@ AC_CHECK_FUNCS_ONCE([
 	getmntent
 	getuid
 	keyctl
-	llseek
-	lseek64
 	memset
 	setmntent
 	clock_gettime

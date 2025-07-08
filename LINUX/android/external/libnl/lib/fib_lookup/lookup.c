@@ -10,8 +10,8 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/utils.h>
+#include "nl-default.h"
+
 #include <netlink/netlink.h>
 #include <netlink/attr.h>
 #include <netlink/utils.h>
@@ -21,7 +21,24 @@
 #include <netlink/fib_lookup/request.h>
 #include <netlink/fib_lookup/lookup.h>
 
+#include "nl-priv-dynamic-core/object-api.h"
+#include "nl-priv-dynamic-core/cache-api.h"
+#include "nl-priv-dynamic-core/nl-core.h"
+
 /** @cond SKIP */
+struct flnl_result
+{
+	NLHDR_COMMON
+
+	struct flnl_request *	fr_req;
+	uint8_t			fr_table_id;
+	uint8_t			fr_prefixlen;
+	uint8_t			fr_nh_sel;
+	uint8_t			fr_type;
+	uint8_t			fr_scope;
+	uint32_t		fr_error;
+};
+
 static struct nl_cache_ops fib_lookup_ops;
 static struct nl_object_ops result_obj_ops;
 
@@ -219,7 +236,7 @@ int flnl_lookup_build_request(struct flnl_request *req, int flags,
 	fr.fl_fwmark = fwmark != UINT_LEAST64_MAX ? fwmark : 0;
 	fr.fl_tos = tos >= 0 ? tos : 0;
 	fr.fl_scope = scope >= 0 ? scope : RT_SCOPE_UNIVERSE;
-	fr.tb_id_in = table >= 0 ? table : RT_TABLE_UNSPEC;
+	fr.tb_id_in = table >= 0 ? (unsigned)table : (unsigned)RT_TABLE_UNSPEC;
 
 	addr = flnl_request_get_addr(req);
 	if (!addr)
@@ -333,12 +350,12 @@ static struct nl_cache_ops fib_lookup_ops = {
 	.co_obj_ops		= &result_obj_ops,
 };
 
-static void __init fib_lookup_init(void)
+static void _nl_init fib_lookup_init(void)
 {
 	nl_cache_mngt_register(&fib_lookup_ops);
 }
 
-static void __exit fib_lookup_exit(void)
+static void _nl_exit fib_lookup_exit(void)
 {
 	nl_cache_mngt_unregister(&fib_lookup_ops);
 }

@@ -1,16 +1,18 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
+/* SPDX-License-Identifier: LGPL-2.1-only */
 /*
  * Copyright (c) 2003-2011 Thomas Graf <tgraf@suug.ch>
  */
+
+#include "nl-default.h"
+
+#include <linux/netlink.h>
 
 #include <netlink/cli/utils.h>
 #include <netlink/cli/tc.h>
 #include <netlink/cli/cls.h>
 #include <netlink/cli/link.h>
 
-#include <netlink-private/route/tc-api.h>
-
-#include <linux/netlink.h>
+#include "nl-priv-dynamic-route/nl-priv-dynamic-route.h"
 
 static int quiet = 0;
 
@@ -109,7 +111,7 @@ int main(int argc, char *argv[])
 		case 'v': nl_cli_print_version(); break;
 		case 'd': nl_cli_tc_parse_dev(tc, link_cache, optarg); break;
 		case 'p': nl_cli_tc_parse_parent(tc, optarg); break;
-		case 'i': id = strdup(optarg); break;
+		case 'i': free(id); id = strdup(optarg); break;
 		case ARG_UPDATE: flags = NLM_F_CREATE; break;
 		case ARG_UPDATE_ONLY: flags = 0; break;
 		case ARG_MTU: nl_cli_tc_parse_mtu(tc, optarg); break;

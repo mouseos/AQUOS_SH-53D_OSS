@@ -1,0 +1,7 @@
+#ifndef _FIH_PRINTK_H
+#define _FIH_PRINTK_H
+
+#define SYSLOG_ACTION_GET_KERNEL_BUFFER 11
+
+#endif /* _FIH_PRINTK_H */
+

@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-2.0
+#
+# For FIH printk extensions
+
+config FIH_PRINTK
+    tristate "FIH printk extensions"
+	depends on PRINTK
+    help
+      FIH printk extensions for battery log.
+      Intercept the keyword "FIHBATTLOG" from printk and direct it to a 
+      custom buffer of type SYSLOG_ACTION_GET_KERNEL_BUFFER.
+

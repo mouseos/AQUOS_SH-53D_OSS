@@ -10,13 +10,13 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/utils.h>
-#include <netlink-private/tc.h>
+#include "nl-default.h"
+
+#include <linux/tc_ematch/tc_em_text.h>
+
 #include <netlink/netlink.h>
 #include <netlink/route/cls/ematch.h>
 #include <netlink/route/cls/ematch/text.h>
-#include <linux/tc_ematch/tc_em_text.h>
 
 struct text_data
 {
@@ -171,7 +171,7 @@ static struct rtnl_ematch_ops text_ops = {
 	.eo_free	= text_free,
 };
 
-static void __init text_init(void)
+static void _nl_init text_init(void)
 {
 	rtnl_ematch_register(&text_ops);
 }

@@ -15,17 +15,21 @@
  *
  * @{
  */
-#include <netlink-private/netlink.h>
+
+#include "nl-default.h"
+
+#include <linux/if_macsec.h>
+
 #include <netlink/netlink.h>
 #include <netlink/attr.h>
 #include <netlink/utils.h>
 #include <netlink/object.h>
 #include <netlink/route/rtnl.h>
 #include <netlink/route/link/macsec.h>
-#include <netlink-private/route/link/api.h>
-#include <netlink-private/utils.h>
 
-#include <linux/if_macsec.h>
+#include "nl-route.h"
+#include "link-api.h"
+#include "nl-priv-dynamic-core/nl-core.h"
 
 /** @cond SKIP */
 #define MACSEC_ATTR_SCI			(1 << 0)
@@ -365,35 +369,41 @@ static int macsec_compare(struct rtnl_link *link_a, struct rtnl_link *link_b,
 	struct macsec_info *a = link_a->l_info;
 	struct macsec_info *b = link_b->l_info;
 	int diff = 0;
-	uint32_t attrs = flags & LOOSE_COMPARISON ? b->ce_mask : ~0;
+	uint32_t attrs = flags & LOOSE_COMPARISON ? b->ce_mask :
+						    ~((uint32_t)0u);
 
-#define MACSEC_DIFF(ATTR, EXPR) ATTR_DIFF(attrs, MACSEC_ATTR_##ATTR, a, b, EXPR)
-
+#define _DIFF(ATTR, EXPR) ATTR_DIFF(attrs, ATTR, a, b, EXPR)
 	if (a->ce_mask & MACSEC_ATTR_SCI && b->ce_mask & MACSEC_ATTR_SCI)
-		diff |= MACSEC_DIFF(SCI, a->sci != b->sci);
+		diff |= _DIFF(MACSEC_ATTR_SCI, a->sci != b->sci);
 	else if (a->ce_mask & MACSEC_ATTR_PORT && b->ce_mask & MACSEC_ATTR_PORT)
-		diff |= MACSEC_DIFF(PORT, a->port != b->port);
+		diff |= _DIFF(MACSEC_ATTR_PORT, a->port != b->port);
 
-	if (a->ce_mask & MACSEC_ATTR_CIPHER_SUITE && b->ce_mask & MACSEC_ATTR_CIPHER_SUITE) {
-		diff |= MACSEC_DIFF(ICV_LEN, a->icv_len != b->icv_len);
-		diff |= MACSEC_DIFF(CIPHER_SUITE, a->cipher_suite != b->cipher_suite);
+	if (a->ce_mask & MACSEC_ATTR_CIPHER_SUITE &&
+	    b->ce_mask & MACSEC_ATTR_CIPHER_SUITE) {
+		diff |= _DIFF(MACSEC_ATTR_ICV_LEN, a->icv_len != b->icv_len);
+		diff |= _DIFF(MACSEC_ATTR_CIPHER_SUITE,
+			      a->cipher_suite != b->cipher_suite);
 	}
 
-	if (a->ce_mask & MACSEC_ATTR_REPLAY_PROTECT && b->ce_mask & MACSEC_ATTR_REPLAY_PROTECT) {
-		int d = MACSEC_DIFF(REPLAY_PROTECT, a->replay_protect != b->replay_protect);
-		if (a->replay_protect && b->replay_protect)
-			d |= MACSEC_DIFF(WINDOW, a->window != b->window);
+	if (a->ce_mask & MACSEC_ATTR_REPLAY_PROTECT &&
+	    b->ce_mask & MACSEC_ATTR_REPLAY_PROTECT) {
+		int d = _DIFF(MACSEC_ATTR_REPLAY_PROTECT,
+			      a->replay_protect != b->replay_protect);
+		if (a->replay_protect && b->replay_protect) {
+			d |= _DIFF(MACSEC_ATTR_WINDOW, a->window != b->window);
+		}
 		diff |= d;
 	}
 
-	diff |= MACSEC_DIFF(ENCODING_SA, a->encoding_sa != b->encoding_sa);
-	diff |= MACSEC_DIFF(ENCRYPT, a->encrypt != b->encrypt);
-	diff |= MACSEC_DIFF(PROTECT, a->protect != b->protect);
-	diff |= MACSEC_DIFF(INC_SCI, a->send_sci != b->send_sci);
-	diff |= MACSEC_DIFF(ES, a->end_station != b->end_station);
-	diff |= MACSEC_DIFF(SCB, a->scb != b->scb);
-	diff |= MACSEC_DIFF(VALIDATION, a->validate != b->validate);
-#undef MACSEC_DIFF
+	diff |= _DIFF(MACSEC_ATTR_ENCODING_SA,
+		      a->encoding_sa != b->encoding_sa);
+	diff |= _DIFF(MACSEC_ATTR_ENCRYPT, a->encrypt != b->encrypt);
+	diff |= _DIFF(MACSEC_ATTR_PROTECT, a->protect != b->protect);
+	diff |= _DIFF(MACSEC_ATTR_INC_SCI, a->send_sci != b->send_sci);
+	diff |= _DIFF(MACSEC_ATTR_ES, a->end_station != b->end_station);
+	diff |= _DIFF(MACSEC_ATTR_SCB, a->scb != b->scb);
+	diff |= _DIFF(MACSEC_ATTR_VALIDATION, a->validate != b->validate);
+#undef _DIFF
 
 	return diff;
 }
@@ -413,12 +423,12 @@ static struct rtnl_link_info_ops macsec_info_ops = {
 	.io_compare		= macsec_compare,
 };
 
-static void __init macsec_init(void)
+static void _nl_init macsec_init(void)
 {
 	rtnl_link_register_info(&macsec_info_ops);
 }
 
-static void __exit macsec_exit(void)
+static void _nl_exit macsec_exit(void)
 {
 	rtnl_link_unregister_info(&macsec_info_ops);
 }
@@ -651,9 +661,6 @@ int rtnl_link_macsec_set_offload(struct rtnl_link *link, uint8_t offload)
 	struct macsec_info *info = link->l_info;
 
 	IS_MACSEC_LINK_ASSERT(link);
-
-	if (offload > 1)
-		return -NLE_INVAL;
 
 	info->offload = offload;
 	info->ce_mask |= MACSEC_ATTR_OFFLOAD;

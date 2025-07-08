@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2015, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,55 +23,48 @@
 package test.java.lang.ref;
 
 import android.system.SystemCleaner;
+import dalvik.system.VMRuntime;
 
 import java.lang.ref.Cleaner;
 import java.lang.ref.Reference;
 import java.lang.ref.PhantomReference;
 import java.lang.ref.ReferenceQueue;
-import java.lang.ref.SoftReference;
-import java.lang.ref.WeakReference;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import jdk.internal.ref.PhantomCleanable;
-// Android-removed: WeakCleanable and SoftCleanable. b/198792576
-// import jdk.internal.ref.WeakCleanable;
-// import jdk.internal.ref.SoftCleanable;
 import jdk.internal.ref.CleanerFactory;
 
-// Android-removed: Remove sun.hotspot.WhiteBox usage
-// import sun.hotspot.WhiteBox;
-
-// Android-removed: inline Utils.adjustTimeout call
-// import jdk.test.lib.Utils;
-
 import org.testng.Assert;
+
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 /*
  * @test
  * @library /lib/testlibrary /test/lib
- * @build sun.hotspot.WhiteBox
+ * @build jdk.test.whitebox.WhiteBox
  *        jdk.test.lib.Utils
  *        jdk.test.lib.Asserts
  *        jdk.test.lib.JDKToolFinder
  *        jdk.test.lib.JDKToolLauncher
  *        jdk.test.lib.Platform
  *        jdk.test.lib.process.*
- * @modules java.base/jdk.internal
- *          java.base/jdk.internal.misc
+ * @modules java.base/jdk.internal.misc
  *          java.base/jdk.internal.ref
  *          java.management
- * @run main ClassFileInstaller sun.hotspot.WhiteBox
+ * @compile CleanerTest.java
+ * @run driver jdk.test.lib.helpers.ClassFileInstaller jdk.test.whitebox.WhiteBox
  * @run testng/othervm
  *      -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI -Xbootclasspath/a:.
  *      -verbose:gc CleanerTest
  */
 
+@Test
 public class CleanerTest {
     // A common CleaningService used by the test for notifications
     static final Cleaner COMMON = CleanerFactory.cleaner();
@@ -79,6 +72,16 @@ public class CleanerTest {
     // Android-removed: Remove sun.hotspot.WhiteBox usage
     // Access to WhiteBox utilities
     // static final WhiteBox whitebox = WhiteBox.getWhiteBox();
+
+    @DataProvider(name = "cleanerSuppliers")
+    public Object[][] factories() {
+        Supplier<Cleaner> supplier1 = () -> Cleaner.create();
+        // Android-removed: virtual threads are not available on Android.
+        // Supplier<Cleaner> supplier2 = () -> Cleaner.create(Thread.ofVirtual().factory());
+        // Android-added: creating with a ThreadFactory for test coverage sake.
+        Supplier<Cleaner> supplier2 = () -> Cleaner.create(Executors.defaultThreadFactory());
+        return new Object[][] { { supplier1 }, { supplier2 } };
+    }
 
     /**
      * Test that sequences of the various actions on a Reference
@@ -90,10 +93,10 @@ public class CleanerTest {
      * collection actions on the reference and explicitly performing
      * the cleaning action.
      */
-    @Test
+    @Test(dataProvider = "cleanerSuppliers")
     @SuppressWarnings("unchecked")
-    public void testCleanableActions() {
-        Cleaner cleaner = Cleaner.create();
+    public void testCleanableActions(Supplier<Cleaner> supplier) {
+        Cleaner cleaner = supplier.get();
 
         // Individually
         generateCases(cleaner, c -> c.clearRef());
@@ -104,7 +107,7 @@ public class CleanerTest {
 
         CleanableCase s = setupPhantom(COMMON, cleaner);
         cleaner = null;
-        checkCleaned(s.getSemaphore(), true, "Cleaner was cleaned:");
+        checkCleaned(s.getSemaphore(), true, "Cleaner was cleaned");
     }
 
     // Android-added: Test (trivially) SystemCleaner by repeating above.
@@ -113,8 +116,8 @@ public class CleanerTest {
      */
     @Test
     @SuppressWarnings("unchecked")
-    public void testSystemCleanerActions() {
-        Cleaner cleaner = SystemCleaner.cleaner();
+    public void testSystemCleanerActions(Supplier<Cleaner> supplier) {
+        Cleaner cleaner = supplier.get();
 
         // Individually
         generateCases(cleaner, c -> c.clearRef());
@@ -134,10 +137,10 @@ public class CleanerTest {
      * collection actions on the reference, explicitly performing
      * the cleanup and explicitly clearing the cleaning action.
      */
-    @Test
+    @Test(dataProvider = "cleanerSuppliers")
     @SuppressWarnings("unchecked")
-    public void testRefSubtypes() {
-        Cleaner cleaner = Cleaner.create();
+    public void testRefSubtypes(Supplier<Cleaner> supplier) {
+        Cleaner cleaner = supplier.get();
 
         // Individually
         generateCasesInternal(cleaner, c -> c.clearRef());
@@ -156,7 +159,7 @@ public class CleanerTest {
 
         CleanableCase s = setupPhantom(COMMON, cleaner);
         cleaner = null;
-        checkCleaned(s.getSemaphore(), true, "Cleaner was cleaned:");
+        checkCleaned(s.getSemaphore(), true, "Cleaner was cleaned");
     }
 
     /**
@@ -174,22 +177,12 @@ public class CleanerTest {
     void generateCasesInternal(Cleaner cleaner, Consumer<CleanableCase>... runnables) {
         generateCases(() -> setupPhantomSubclass(cleaner, null),
                 runnables.length, runnables);
-        // Android-removed: WeakCleanable and SoftCleanable. b/198792576
-        // generateCases(() -> setupWeakSubclass(cleaner, null),
-        //         runnables.length, runnables);
-        // generateCases(() -> setupSoftSubclass(cleaner, null),
-        //         runnables.length, runnables);
     }
 
     @SuppressWarnings("unchecked")
     void generateExceptionCasesInternal(Cleaner cleaner) {
         generateCases(() -> setupPhantomSubclassException(cleaner, null),
                 1, c -> c.clearRef());
-        // Android-removed: WeakCleanable and SoftCleanable. b/198792576
-        // generateCases(() -> setupWeakSubclassException(cleaner, null),
-        //         1, c -> c.clearRef());
-        // generateCases(() -> setupSoftSubclassException(cleaner, null),
-        //         1, c -> c.clearRef());
     }
 
     /**
@@ -248,9 +241,9 @@ public class CleanerTest {
 
         checkCleaned(test.getSemaphore(),
                 r == CleanableCase.EV_CLEAN,
-                "Cleanable was cleaned:");
+                "Cleanable was cleaned");
         checkCleaned(cc.getSemaphore(), true,
-                "The reference to the Cleanable was freed:");
+                "The reference to the Cleanable was freed");
     }
 
     /**
@@ -279,21 +272,21 @@ public class CleanerTest {
         }
     }
 
-    // BEGIN Android-removed: Disable non-passing test.
+    // BEGIN Android-changed: gc() more emphatically.
     /**
      * Test that releasing the reference to the Cleaner service allows it to be
      * be freed.
-     *
-    @Test
-    public void testCleanerTermination() {
+     */
+    @Test(dataProvider = "cleanerSuppliers")
+    public void testCleanerTermination(Supplier<Cleaner> supplier) {
         ReferenceQueue<Object> queue = new ReferenceQueue<>();
-        Cleaner service = Cleaner.create();
+        Cleaner service = supplier.get();
 
         PhantomReference<Object> ref = new PhantomReference<>(service, queue);
-        System.gc();
+        gcEmphatically();
         // Clear the Reference to the cleaning service and force a gc.
         service = null;
-        System.gc();
+        gcEmphatically();
         try {
             Reference<?> r = queue.remove(1000L);
             Assert.assertNotNull(r, "queue.remove timeout,");
@@ -302,7 +295,17 @@ public class CleanerTest {
             System.out.printf("queue.remove Interrupted%n");
         }
     }
-    // END Android-removed: Disable non-passing test.
+
+    private static void gcEmphatically() {
+        int targetSdkVersion = VMRuntime.getRuntime().getTargetSdkVersion();
+        if (targetSdkVersion <= 34) {
+            Runtime.getRuntime().gc();
+        } else {
+            System.gc();
+        }
+    }
+    // END Android-changed: gc() more emphatically.
+
 
     /**
      * Check a semaphore having been released by cleanup handler.
@@ -311,26 +314,27 @@ public class CleanerTest {
      * Use a larger number of cycles to wait for an expected cleaning to occur.
      *
      * @param semaphore a Semaphore
-     * @param expectCleaned true if cleaning should occur
-     * @param msg a message to explain the error
+     * @param expectCleaned true if cleaning the function should have been run, otherwise not run
+     * @param msg a message describing the cleaning function expected to be run or not run
      */
-    static void checkCleaned(Semaphore semaphore, boolean expectCleaned,
-                             String msg) {
+    static void checkCleaned(Semaphore semaphore, boolean expectCleaned, String msg) {
         long max_cycles = expectCleaned ? 10 : 3;
         long cycle = 0;
         for (; cycle < max_cycles; cycle++) {
             // Force GC
             // Android-removed: Remove sun.hotspot.WhiteBox usage
             // whitebox.fullGC();
-            Runtime.getRuntime().gc();
+            gcEmphatically();
 
             try {
                 // Android-changed: inline Utils.adjustTimeout call
                 // It is "Math.round(arg * Utils.TIMEOUT_FACTOR), where TIMEOUT_FACTOR defaults to 1.0"
-                //if (semaphore.tryAcquire(Utils.adjustTimeout(10L), TimeUnit.MILLISECONDS)) {
-                if (semaphore.tryAcquire(10L, TimeUnit.MILLISECONDS)) {
+                // if (semaphore.tryAcquire(Utils.adjustTimeout(200L), TimeUnit.MILLISECONDS)) {
+                if (semaphore.tryAcquire(200L, TimeUnit.MILLISECONDS)) {
                     System.out.printf(" Cleanable cleaned in cycle: %d%n", cycle);
-                    Assert.assertEquals(true, expectCleaned, msg);
+                    if (!expectCleaned)
+                        Assert.fail("Should not have been run: " +  msg);
+
                     return;
                 }
             } catch (InterruptedException ie) {
@@ -338,7 +342,8 @@ public class CleanerTest {
             }
         }
         // Object has not been cleaned
-        Assert.assertEquals(false, expectCleaned, msg);
+        if (expectCleaned)
+            Assert.fail("Should have been run: " + msg);
     }
 
     /**
@@ -378,51 +383,6 @@ public class CleanerTest {
         return new CleanableCase(new PhantomReference<>(obj, null), c1, s1);
     }
 
-    // BEGIN Android-removed: WeakCleanable and SoftCleanable. b/198792576
-    /*
-     * Create a CleanableCase for a WeakReference.
-     * @param cleaner the cleaner to use
-     * @param obj an object or null to create a new Object
-     * @return a new CleanableCase preset with the object, cleanup, and semaphore
-     *
-    static CleanableCase setupWeakSubclass(Cleaner cleaner, Object obj) {
-        if (obj == null) {
-            obj = new Object();
-        }
-        Semaphore s1 = new Semaphore(0);
-
-        Cleaner.Cleanable c1 = new WeakCleanable<Object>(obj, cleaner) {
-            protected void performCleanup() {
-                s1.release();
-            }
-        };
-
-        return new CleanableCase(new WeakReference<>(obj, null), c1, s1);
-    }
-
-    /*
-     * Create a CleanableCase for a SoftReference.
-     * @param cleaner the cleaner to use
-     * @param obj an object or null to create a new Object
-     * @return a new CleanableCase preset with the object, cleanup, and semaphore
-     *
-    static CleanableCase setupSoftSubclass(Cleaner cleaner, Object obj) {
-        if (obj == null) {
-            obj = new Object();
-        }
-        Semaphore s1 = new Semaphore(0);
-
-        Cleaner.Cleanable c1 = new SoftCleanable<Object>(obj, cleaner) {
-            protected void performCleanup() {
-                s1.release();
-            }
-        };
-
-        return new CleanableCase(new SoftReference<>(obj, null), c1, s1);
-    }
-    */
-    // END Android-removed: WeakCleanable and SoftCleanable. b/198792576
-
     /**
      * Create a CleanableCase for a PhantomReference.
      * @param cleaner the cleaner to use
@@ -444,53 +404,6 @@ public class CleanerTest {
 
         return new CleanableCase(new PhantomReference<>(obj, null), c1, s1, true);
     }
-
-    // BEGIN Android-removed: WeakCleanable and SoftCleanable. b/198792576
-    /**
-     * Create a CleanableCase for a WeakReference.
-     * @param cleaner the cleaner to use
-     * @param obj an object or null to create a new Object
-     * @return a new CleanableCase preset with the object, cleanup, and semaphore
-     *
-    static CleanableCase setupWeakSubclassException(Cleaner cleaner, Object obj) {
-        if (obj == null) {
-            obj = new Object();
-        }
-        Semaphore s1 = new Semaphore(0);
-
-        Cleaner.Cleanable c1 = new WeakCleanable<Object>(obj, cleaner) {
-            protected void performCleanup() {
-                s1.release();
-                throw new RuntimeException("Exception thrown to cleaner thread");
-            }
-        };
-
-        return new CleanableCase(new WeakReference<>(obj, null), c1, s1, true);
-    }
-
-    /**
-     * Create a CleanableCase for a SoftReference.
-     * @param cleaner the cleaner to use
-     * @param obj an object or null to create a new Object
-     * @return a new CleanableCase preset with the object, cleanup, and semaphore
-     *
-    static CleanableCase setupSoftSubclassException(Cleaner cleaner, Object obj) {
-        if (obj == null) {
-            obj = new Object();
-        }
-        Semaphore s1 = new Semaphore(0);
-
-        Cleaner.Cleanable c1 = new SoftCleanable<Object>(obj, cleaner) {
-            protected void performCleanup() {
-                s1.release();
-                throw new RuntimeException("Exception thrown to cleaner thread");
-            }
-        };
-
-        return new CleanableCase(new SoftReference<>(obj, null), c1, s1, true);
-    }
-    */
-    // END Android-removed: WeakCleanable and SoftCleanable. b/198792576
 
     /**
      * CleanableCase encapsulates the objects used for a test.
@@ -649,87 +562,14 @@ public class CleanerTest {
         }
     }
 
-    // BEGIN Android-removed: WeakCleanable and SoftCleanable. b/198792576
-    /**
-     * Example using a Cleaner to remove WeakKey references from a Map.
-     *
-    @Test
-    public void testWeakKey() {
-        ConcurrentHashMap<WeakKey<String>, String> map = new ConcurrentHashMap<>();
-        Cleaner cleaner = Cleaner.create();
-        String key = new String("foo");  //  ensure it is not interned
-        String data = "bar";
-
-        map.put(new WeakKey<>(key, cleaner, map), data);
-
-        WeakKey<String> k2 = new WeakKey<>(key, cleaner, map);
-
-        Assert.assertEquals(map.get(k2), data, "value should be found in the map");
-        key = null;
-        System.gc();
-        Assert.assertNotEquals(map.get(k2), data, "value should not be found in the map");
-
-        // Android-changed: inline Utils.adjustTimeout call
-        // It is "Math.round(arg * Utils.TIMEOUT_FACTOR), where TIMEOUT_FACTOR defaults to 1.0"
-        // final long CYCLE_MAX = Utils.adjustTimeout(30L);
-        final long CYCLE_MAX = 30L;
-        for (int i = 1; map.size() > 0 && i < CYCLE_MAX; i++) {
-            map.forEach( (k, v) -> System.out.printf("    k: %s, v: %s%n", k, v));
-            try {
-                Thread.sleep(10L);
-            } catch (InterruptedException ie) {}
-        }
-        Assert.assertEquals(map.size(), 0, "Expected map to be empty;");
-        cleaner = null;
-    }
-
-    /**
-     * Test sample class for WeakKeys in Map.
-     * @param <K> A WeakKey of type K
-     *
-    class WeakKey<K> extends WeakReference<K> {
-        private final int hash;
-        private final ConcurrentHashMap<WeakKey<K>, ?> map;
-        Cleaner.Cleanable cleanable;
-
-        public WeakKey(K key, Cleaner c, ConcurrentHashMap<WeakKey<K>, ?> map) {
-            super(key);
-            this.hash = key.hashCode();
-            this.map = map;
-            cleanable = new WeakCleanable<Object>(key, c) {
-                protected void performCleanup() {
-                    map.remove(WeakKey.this);
-                }
-            };
-        }
-        public int hashCode() { return hash; }
-
-        public boolean equals(Object obj) {
-            if (obj == this) {
-                return true;
-            }
-            if (!(obj instanceof WeakKey)) return false;
-            K key = get();
-            if (key == null) return obj == this;
-            return key == ((WeakKey<?>)obj).get();
-        }
-
-        public String toString() {
-            return "WeakKey:" + Objects.toString(get() + ", cleanableRef: " +
-                    ((Reference)cleanable).get());
-        }
-    }
-    */
-    // END Android-removed: WeakCleanable and SoftCleanable. b/198792576
-
     /**
      * Verify that casting a Cleanup to a Reference is not allowed to
      * get the referent or clear the reference.
      */
-    @Test
+    @Test(dataProvider = "cleanerSuppliers")
     @SuppressWarnings("rawtypes")
-    public void testReferentNotAvailable() {
-        Cleaner cleaner = Cleaner.create();
+    public void testReferentNotAvailable(Supplier<Cleaner> supplier) {
+        Cleaner cleaner = supplier.get();
         Semaphore s1 = new Semaphore(0);
 
         Object obj = new String("a new string");
@@ -751,7 +591,7 @@ public class CleanerTest {
         }
 
         obj = null;
-        checkCleaned(s1, true, "reference was cleaned:");
+        checkCleaned(s1, true, "reference was cleaned");
         cleaner = null;
     }
 
@@ -766,6 +606,6 @@ public class CleanerTest {
         CleanableCase s = setupPhantom(cleaner, obj);
         obj = null;
         checkCleaned(s.getSemaphore(), true,
-                "Object was cleaned using CleanerFactor.cleaner():");
+                "Object cleaned using internal CleanerFactory.cleaner()");
     }
 }

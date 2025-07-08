@@ -22,6 +22,8 @@
  */
 package test.java.nio.Buffer;
 
+import android.platform.test.annotations.LargeTest;
+
 import org.testng.Assert;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
@@ -520,6 +522,7 @@ public class EqualsCompareTest {
 
 
     // Tests all primitive buffers
+    @LargeTest
     @Test(dataProvider = "bufferTypesProvider")
     public void testBuffers(BufferType<Buffer, Buffer> bufferType) {
         // Test with buffers of the same byte order (BE)
@@ -548,6 +551,7 @@ public class EqualsCompareTest {
     }
 
     // Tests float and double buffers with edge-case values (NaN, -0.0, +0.0)
+    @LargeTest
     @Test(dataProvider = "floatBufferTypesProvider")
     public void testFloatBuffers(
             BufferType<Buffer, Float> bufferType,
@@ -595,6 +599,7 @@ public class EqualsCompareTest {
     }
 
     // Tests CharBuffer for region sources and CharSequence sources
+    @LargeTest
     @Test(dataProvider = "charBufferTypesProvider")
     public void testCharBuffers(BufferType.Chars charBufferType) {
 
@@ -664,30 +669,29 @@ public class EqualsCompareTest {
                                 }
                             }
                         }
-                        // TODO(b/271236407): fix this
-//                            if (aLength > 0 && !a.isReadOnly()) {
-//                                for (int i = aFrom; i < aTo; i++) {
-//                                    B c = aConstructor.apply(bt, a.capacity());
-//                                    B cs = aLength != s
-//                                            ? bt.slice(c, aFrom, aTo, dupOtherwiseSlice)
-//                                            : c;
-//
-//                                    // Create common prefix with a length of i - aFrom
-//                                    bt.set(c, i, -1);
-//
-//                                    Assert.assertFalse(bt.equals(c, a));
-//
-//                                    int cCa = bt.compare(cs, as);
-//                                    int aCc = bt.compare(as, cs);
-//                                    int v = Integer.signum(cCa) * Integer.signum(aCc);
-//                                    Assert.assertTrue(v == -1);
-//
-//                                    int cMa = bt.mismatch(cs, as);
-//                                    int aMc = bt.mismatch(as, cs);
-//                                    Assert.assertEquals(cMa, aMc);
-//                                    Assert.assertEquals(cMa, i - aFrom);
-//                                }
-//                            }
+                        if (aLength > 0 && !a.isReadOnly()) {
+                            for (int i = aFrom; i < aTo; i++) {
+                                B c = aConstructor.apply(bt, a.capacity());
+                                B cs = aLength != s
+                                        ? bt.slice(c, aFrom, aTo, dupOtherwiseSlice)
+                                        : c;
+
+                                // Create common prefix with a length of i - aFrom
+                                bt.set(c, i, -1);
+
+                                Assert.assertFalse(bt.equals(c, a));
+
+                                int cCa = bt.compare(cs, as);
+                                int aCc = bt.compare(as, cs);
+                                int v = Integer.signum(cCa) * Integer.signum(aCc);
+                                Assert.assertTrue(v == -1);
+
+                                int cMa = bt.mismatch(cs, as);
+                                int aMc = bt.mismatch(as, cs);
+                                Assert.assertEquals(cMa, aMc);
+                                Assert.assertEquals(cMa, i - aFrom);
+                            }
+                        }
                     }
                 }
             }

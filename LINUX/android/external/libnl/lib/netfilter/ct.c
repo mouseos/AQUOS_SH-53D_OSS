@@ -13,15 +13,19 @@
  * @{
  */
 
-#include <byteswap.h>
+#include "nl-default.h"
+
 #include <sys/types.h>
+
 #include <linux/netfilter/nfnetlink_conntrack.h>
 
-#include <netlink-private/netlink.h>
 #include <netlink/attr.h>
 #include <netlink/netfilter/nfnl.h>
 #include <netlink/netfilter/ct.h>
-#include <netlink-private/utils.h>
+
+#include "nl-netfilter.h"
+#include "nl-priv-dynamic-core/nl-core.h"
+#include "nl-priv-dynamic-core/cache-api.h"
 
 static struct nl_cache_ops nfnl_ct_ops;
 
@@ -704,12 +708,12 @@ static struct nl_cache_ops nfnl_ct_ops = {
 	.co_obj_ops		= &ct_obj_ops,
 };
 
-static void __init ct_init(void)
+static void _nl_init ct_init(void)
 {
 	nl_cache_mngt_register(&nfnl_ct_ops);
 }
 
-static void __exit ct_exit(void)
+static void _nl_exit ct_exit(void)
 {
 	nl_cache_mngt_unregister(&nfnl_ct_ops);
 }

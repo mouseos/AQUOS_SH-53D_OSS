@@ -1,5 +1,10 @@
-README - CUPS v2.3.3 - 2020-04-24
-=================================
+README - Apple CUPS v2.3.6 - 2022-05-25
+=======================================
+
+> Note: Apple CUPS is the version of CUPS that is shipped with macOS and iOS.
+> For the current version of CUPS that is used on other operating systems, see
+> <https://openprinting.github.io/cups> for details.
+
 
 INTRODUCTION
 ------------
@@ -157,7 +162,7 @@ This will prevent the filters from misinterpreting your print file.
 LEGAL STUFF
 -----------
 
-Copyright © 2007-2019 by Apple Inc.
+Copyright © 2007-2021 by Apple Inc.
 Copyright © 1997-2007 by Easy Software Products.
 
 CUPS is provided under the terms of the Apache License, Version 2.0 with

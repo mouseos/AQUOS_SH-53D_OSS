@@ -90,6 +90,7 @@ static void	cups_gss_printf(OM_uint32 major_status, OM_uint32 minor_status,
 #    define	cups_gss_printf(major, minor, message)
 #  endif /* DEBUG */
 #endif /* HAVE_GSSAPI */
+static int	cups_is_local_connection(http_t *http);
 static int	cups_local_auth(http_t *http);
 
 
@@ -174,10 +175,10 @@ cupsDoAuthentication(
     DEBUG_printf(("2cupsDoAuthentication: Trying scheme \"%s\"...", scheme));
 
 #ifdef HAVE_GSSAPI
-    if (!_cups_strcasecmp(scheme, "Negotiate"))
+    if (!_cups_strcasecmp(scheme, "Negotiate") && !cups_is_local_connection(http))
     {
      /*
-      * Kerberos authentication...
+      * Kerberos authentication to remote server...
       */
 
       int gss_status;			/* Auth status */
@@ -201,7 +202,9 @@ cupsDoAuthentication(
     }
     else
 #endif /* HAVE_GSSAPI */
-    if (_cups_strcasecmp(scheme, "Basic") && _cups_strcasecmp(scheme, "Digest"))
+    if (_cups_strcasecmp(scheme, "Basic") &&
+	_cups_strcasecmp(scheme, "Digest") &&
+	_cups_strcasecmp(scheme, "Negotiate"))
     {
      /*
       * Other schemes not yet supported...
@@ -215,7 +218,7 @@ cupsDoAuthentication(
     * See if we should retry the current username:password...
     */
 
-    if ((http->digest_tries > 1 || !http->userpass[0]) && (!_cups_strcasecmp(scheme, "Basic") || (!_cups_strcasecmp(scheme, "Digest"))))
+    if (http->digest_tries > 1 || !http->userpass[0])
     {
      /*
       * Nope - get a new password from the user...
@@ -295,7 +298,7 @@ cupsDoAuthentication(
     }
   }
 
-  if (http->authstring)
+  if (http->authstring && http->authstring[0])
   {
     DEBUG_printf(("1cupsDoAuthentication: authstring=\"%s\".", http->authstring));
 
@@ -326,10 +329,6 @@ _cupsSetNegotiateAuthString(
 		major_status;		/* Major status code */
   gss_buffer_desc output_token = GSS_C_EMPTY_BUFFER;
 					/* Output token */
-
-
-  (void)method;
-  (void)resource;
 
 #  ifdef __APPLE__
  /*
@@ -447,6 +446,9 @@ _cupsSetNegotiateAuthString(
       }
     }
   }
+#  else
+  (void)method;
+  (void)resource;
 #  endif /* HAVE_GSS_ACQUIRED_CRED_EX_F */
 
   if (major_status == GSS_S_NO_CRED)
@@ -559,9 +561,9 @@ cups_auth_find(const char *www_authenticate,	/* I - Pointer into WWW-Authenticat
         * Skip quoted value...
         */
 
-        www_authenticate ++;
-        while (*www_authenticate && *www_authenticate != '\"')
+        do
           www_authenticate ++;
+        while (*www_authenticate && *www_authenticate != '\"');
 
         DEBUG_printf(("9cups_auth_find: After quoted: \"%s\"", www_authenticate));
       }
@@ -916,6 +918,14 @@ cups_gss_printf(OM_uint32  major_status,/* I - Major status code */
 #  endif /* DEBUG */
 #endif /* HAVE_GSSAPI */
 
+static int				/* O - 0 if not a local connection */
+					/*     1  if local connection */
+cups_is_local_connection(http_t *http)	/* I - HTTP connection to server */
+{
+  if (!httpAddrLocalhost(http->hostaddr) && _cups_strcasecmp(http->hostname, "localhost") != 0)
+    return 0;
+  return 1;
+}
 
 /*
  * 'cups_local_auth()' - Get the local authorization certificate if
@@ -958,7 +968,7 @@ cups_local_auth(http_t *http)		/* I - HTTP connection to server */
   * See if we are accessing localhost...
   */
 
-  if (!httpAddrLocalhost(http->hostaddr) && _cups_strcasecmp(http->hostname, "localhost") != 0)
+  if (!cups_is_local_connection(http))
   {
     DEBUG_puts("8cups_local_auth: Not a local connection!");
     return (1);
@@ -1031,11 +1041,6 @@ cups_local_auth(http_t *http)		/* I - HTTP connection to server */
    */
   }
 #  endif /* HAVE_AUTHORIZATION_H */
-
-#  ifdef HAVE_GSSAPI
-  if (cups_auth_find(www_auth, "Negotiate"))
-    return (1);
-#  endif /* HAVE_GSSAPI */
 
 #  if defined(SO_PEERCRED) && defined(AF_LOCAL)
  /*

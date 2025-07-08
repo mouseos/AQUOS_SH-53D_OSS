@@ -58,6 +58,7 @@ static int android_dump(char* device) {
             }
         }
         break;
+    case hybrid:
     case gpt:
         gptData.JustLooking();
         if (!gptData.LoadPartitions((string) device)) {

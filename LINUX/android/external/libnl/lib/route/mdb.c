@@ -3,15 +3,40 @@
  * lib/route/mdb.c		Multicast Database
  */
 
-#include <netlink-private/netlink.h>
+#include "nl-default.h"
+
+#include <linux/if_bridge.h>
+
 #include <netlink/netlink.h>
 #include <netlink/route/mdb.h>
+#include <netlink/route/nexthop.h>
 #include <netlink/utils.h>
-#include <linux/if_bridge.h>
+#include <netlink/route/rtnl.h>
+
+#include "nl-route.h"
+#include "nl-aux-route/nl-route.h"
+#include "nl-priv-dynamic-core/object-api.h"
+#include "nl-priv-dynamic-core/cache-api.h"
 
 /** @cond SKIP */
 #define MDB_ATTR_IFINDEX         0x000001
 #define MDB_ATTR_ENTRIES         0x000002
+
+struct rtnl_mdb {
+	NLHDR_COMMON
+	uint32_t ifindex;
+
+	struct nl_list_head mdb_entry_list;
+};
+
+struct rtnl_mdb_entry {
+	struct nl_list_head mdb_list;
+	struct nl_addr *addr;
+	uint32_t ifindex;
+	uint16_t vid;
+	uint16_t proto;
+	uint8_t state;
+};
 
 static struct rtnl_mdb_entry *rtnl_mdb_entry_alloc(void);
 static void rtnl_mdb_entry_free(struct rtnl_mdb_entry *mdb_entry);
@@ -55,9 +80,9 @@ static uint64_t mdb_compare(struct nl_object *_a, struct nl_object *_b,
 	struct rtnl_mdb_entry *a_entry, *b_entry;
 	uint64_t diff = 0;
 
-#define MDB_DIFF(ATTR, EXPR) ATTR_DIFF(attrs, MDB_ATTR_##ATTR, a, b, EXPR)
-	diff |= MDB_DIFF(IFINDEX, a->ifindex != b->ifindex);
-#undef MDB_DIFF
+#define _DIFF(ATTR, EXPR) ATTR_DIFF(attrs, ATTR, a, b, EXPR)
+	diff |= _DIFF(MDB_ATTR_IFINDEX, a->ifindex != b->ifindex);
+#undef _DIFF
 
 	a_entry = nl_list_entry(a->mdb_entry_list.next, struct rtnl_mdb_entry, mdb_list);
 	b_entry = nl_list_entry(b->mdb_entry_list.next, struct rtnl_mdb_entry, mdb_list);
@@ -453,12 +478,12 @@ static struct nl_cache_ops rtnl_mdb_ops = {
 	.co_obj_ops = &mdb_obj_ops,
 };
 
-static void __init mdb_init(void)
+static void _nl_init mdb_init(void)
 {
 	nl_cache_mngt_register(&rtnl_mdb_ops);
 }
 
-static void __exit mdb_exit(void)
+static void _nl_exit mdb_exit(void)
 {
 	nl_cache_mngt_unregister(&rtnl_mdb_ops);
 }

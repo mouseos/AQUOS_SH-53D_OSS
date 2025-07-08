@@ -1,3 +1,43 @@
+erofs-utils 1.7.1
+
+ * A quick maintenance release includes the following fixes:
+   - fix a build issue of cross-compilation with autoconf (Sandeep Dhavale);
+   - fix an invalid error code in lib/tar.c (Erik Sjölund);
+   - fix corrupted directories with hardlinks.
+
+ -- Gao Xiang <xiang@kernel.org>  Fri, 20 Oct 2023 00:00:00 +0800
+
+erofs-utils 1.7
+
+ * This release includes the following updates:
+   - support arbitrary valid block sizes in addition to page size;
+   - (mkfs.erofs) arrange on-disk meta with Breadth-First Traversal instead;
+   - support long xattr name prefixes (Jingbo Xu);
+   - support UUID functionality without libuuid (Norbert Lange);
+   - (mkfs.erofs, experimental) add DEFLATE algorithm support;
+   - (mkfs.erofs, experimental) support building images directly from tarballs;
+   - (dump.erofs) print more superblock fields (Guo Xuenan);
+   - (mkfs.erofs, experimental) introduce preliminary rebuild mode (Jingbo Xu);
+   - various bugfixes and cleanups (Sandeep Dhavale, Guo Xuenan, Yue Hu,
+           Weizhao Ouyang, Kelvin Zhang, Noboru Asai, Yifan Zhao and Li Yiyan);
+
+ -- Gao Xiang <xiang@kernel.org>  Thu, 21 Sep 2023 00:00:00 +0800
+
+erofs-utils 1.6
+
+ * This release includes the following updates:
+   - support fragments by using `-Efragments` (Yue Hu);
+   - support compressed data deduplication by using `-Ededupe` (Ziyang Zhang);
+   - (erofsfuse) support extended attributes (Huang Jianan);
+   - (mkfs.erofs) support multiple algorithms in a single image (Gao Xiang);
+   - (mkfs.erofs) support chunk-based sparse files (Gao Xiang);
+   - (mkfs.erofs) add volume-label setting support (Naoto Yamaguchi);
+   - (mkfs.erofs) add uid/gid offsetting support (Naoto Yamaguchi);
+   - (mkfs.erofs) pack files entirely by using `-Eall-fragments` (Gao Xiang);
+   - various bugfixes and cleanups;
+
+ -- Gao Xiang <xiang@kernel.org>  Sun, 12 Mar 2023 00:00:00 +0800
+
 erofs-utils 1.5
 
  * This release includes the following updates:

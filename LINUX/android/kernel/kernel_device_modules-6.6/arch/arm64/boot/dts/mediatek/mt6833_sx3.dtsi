@@ -1,0 +1,12 @@
+/* BASE,MT6833,SX3 */
+#include "mediatek/base_sx3_fih_apr.dtsi"
+#include "mediatek/base_sx3_fih_binf.dtsi"
+#include "mediatek/base_sx3_fih_cpu.dtsi"
+#include "mediatek/base_sx3_fih_ddr.dtsi"
+#include "mediatek/base_sx3_fih_fver.dtsi"
+#include "mediatek/base_sx3_fih_info.dtsi"
+#include "mediatek/base_sx3_fih_mfd.dtsi"
+#include "mediatek/base_sx3_fih_pdd.dtsi"
+#include "mediatek/base_sx3_fih_seb.dtsi"
+#include "mediatek/base_sx3_fih_sim.dtsi"
+#include "mediatek/base_sx3_fih_ufs.dtsi"

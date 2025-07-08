@@ -1,22 +1,23 @@
 /* SPDX-License-Identifier: LGPL-2.1-only */
 
+#include "nl-default.h"
+
 #include "nl-test-util.h"
 
 #include <fcntl.h>
-#include <inttypes.h>
-#include <limits.h>
+#include <fnmatch.h>
 #include <sched.h>
-#include <stdbool.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <sys/mount.h>
-#include <unistd.h>
 
-#include "netlink-private/utils.h"
-#include "netlink/netlink.h"
-#include "netlink/route/link.h"
-#include "netlink/route/route.h"
-#include "netlink/socket.h"
+#include <netlink/netlink.h>
+#include <netlink/route/link.h>
+#include <netlink/route/route.h>
+#include <netlink/socket.h>
+
+#include "lib/route/nl-route.h"
+
+#include "nl-aux-route/nl-route.h"
 
 /*****************************************************************************/
 
@@ -32,7 +33,7 @@ void _nltst_get_urandom(void *ptr, size_t len)
 	_nltst_assert_errno(fd >= 0);
 
 	nread = read(fd, ptr, len);
-	_nltst_assert_errno(nread == len);
+	_nltst_assert_errno(nread >= 0 && ((size_t)nread) == len);
 
 	_nltst_close(fd);
 }
@@ -87,12 +88,12 @@ struct nltst_netns {
 
 /*****************************************************************************/
 
-#define _assert_nltst_netns(nsdata)                                            \
-	do {                                                                   \
-		const struct nltst_netns *_nsdata = (nsdata);                  \
-                                                                               \
-		ck_assert_ptr_nonnull(_nsdata);                                \
-		ck_assert_int_eq(_nsdata->canary, _CANARY);                    \
+#define _assert_nltst_netns(nsdata)                           \
+	do {                                                  \
+		const struct nltst_netns *_nsdata = (nsdata); \
+                                                              \
+		ck_assert_ptr_nonnull(_nsdata);               \
+		ck_assert_int_eq(_nsdata->canary, _CANARY);   \
 	} while (0)
 
 static struct {
@@ -219,11 +220,13 @@ void _nltst_object_identical(const void *a, const void *b)
 
 /*****************************************************************************/
 
-char *_nltst_object_to_string(struct nl_object *obj)
+char *_nltst_object_to_string(const struct nl_object *obj)
 {
 	size_t L = 1024;
 	size_t l;
 	char *s;
+	struct nl_dump_params dp;
+	char canary;
 
 	if (!obj)
 		return strdup("(null)");
@@ -231,11 +234,31 @@ char *_nltst_object_to_string(struct nl_object *obj)
 	s = malloc(L);
 	ck_assert_ptr_nonnull(s);
 
-	nl_object_dump_buf(obj, s, L);
+	canary = _nltst_rand_u32();
+	s[L - 1u] = canary;
+
+	dp = (struct nl_dump_params){
+		.dp_type = NL_DUMP_LINE,
+		.dp_buf = s,
+		.dp_buflen = L - 1u,
+	};
+
+	nl_object_dump((struct nl_object *)obj, &dp);
+
 	l = strlen(s);
+	ck_assert_int_ge(l, 2);
 	ck_assert_int_lt(l, L);
+	ck_assert(canary == s[L - 1u]);
 	s = realloc(s, l + 1);
 	ck_assert_ptr_nonnull(s);
+
+	ck_assert_msg(s[l - 1u] == '\n',
+		      "expects newline after dump. Got \"%s\"", s);
+	s[l - 1u] = '\0';
+
+	ck_assert_msg(!strchr(s, '\n'),
+		      "no further newline expected. Got \"%s\"", s);
+
 	return s;
 }
 
@@ -654,4 +677,367 @@ void _nltst_assert_link_exists_full(const char *ifname, bool exists)
 
 	/* FIXME: we would expect that the cloned object is identical. It is not. */
 	/* _nltst_object_identical(link, link_clone); */
+}
+
+/*****************************************************************************/
+
+bool _nltst_in_ci(void)
+{
+	return _nl_streq0(getenv("NLTST_IN_CI"), "1");
+}
+
+/*****************************************************************************/
+
+bool _nltst_has_iproute2(void)
+{
+	static int has = -1;
+
+	if (has == -1)
+		has = (system("ip link &>/dev/null") == 0);
+
+	return has;
+}
+
+bool _nltst_skip_no_iproute2(const char *msg)
+{
+	if (_nltst_has_iproute2())
+		return false;
+
+	ck_assert_msg(
+		!_nltst_in_ci(),
+		"We seem to not have iproute2, but we are in NLTST_IN_CI=1. This is fatal.");
+
+	printf("skip test due to missing iproute2%s%s%s\n", msg ? " (" : "",
+	       msg ?: "", msg ? ")" : "");
+	return true;
+}
+
+/*****************************************************************************/
+
+void _nltst_select_route_clear(NLTstSelectRoute *select_route)
+{
+	_nltst_assert_select_route(select_route);
+
+	_nl_clear_free(&select_route->addr);
+	_nl_clear_free(&select_route->addr_pattern);
+}
+
+int _nltst_select_route_cmp(const NLTstSelectRoute *select_route1,
+			    const NLTstSelectRoute *select_route2)
+{
+	_NL_CMP_SELF(select_route1, select_route2);
+	_NL_CMP_FIELD_STR0(select_route1, select_route2, addr);
+	_NL_CMP_FIELD_STR0(select_route1, select_route2, addr_pattern);
+	_NL_CMP_FIELD(select_route1, select_route2, addr_family);
+	_NL_CMP_FIELD(select_route1, select_route2, ifindex);
+	_NL_CMP_FIELD(select_route1, select_route2, plen);
+	return 0;
+}
+
+char *_nltst_select_route_to_string(const NLTstSelectRoute *select_route)
+{
+	char buf[1024];
+	const char *family;
+	char b_plen[100];
+
+	_nltst_assert_select_route(select_route);
+
+	if (select_route->addr_family == AF_INET)
+		family = "4 ";
+	else if (select_route->addr_family == AF_INET6)
+		family = "6 ";
+	else
+		family = "";
+
+	b_plen[0] = '\0';
+	if (select_route->plen != -1)
+		_nltst_sprintf_arr(b_plen, "/%d", select_route->plen);
+
+	_nltst_sprintf_arr(buf,
+			   "%s"
+			   "%s"
+			   "%s"
+			   "",
+			   family,
+			   select_route->addr_pattern ?: select_route->addr,
+			   b_plen);
+	return _nltst_strdup(buf);
+}
+
+void _nltst_select_route_parse(const char *str,
+			       NLTstSelectRoute *out_select_route)
+{
+	_nltst_auto_strfreev char **tokens0 = NULL;
+	const char *const *tokens;
+	int addr_family = AF_UNSPEC;
+	int addr_family2 = AF_UNSPEC;
+	NLTstIPAddr addr;
+	int plen = -1;
+	_nl_auto_free char *addr_free = NULL;
+	const char *s_addr_pattern;
+	const char *s_addr = NULL;
+	const char *s;
+	const char *s1;
+
+	ck_assert_ptr_nonnull(str);
+	_nltst_assert_select_route(out_select_route);
+
+	tokens0 = _nltst_strtokv(str);
+	tokens = (const char *const *)tokens0;
+
+	s = tokens[0];
+	if (!s)
+		ck_abort_msg("invalid empty route pattern \"%s\"", str);
+	if (_nl_streq(s, "4") || _nl_streq(s, "inet") ||
+	    _nl_streq(s, "inet4")) {
+		addr_family = AF_INET;
+		tokens++;
+	} else if (_nl_streq(s, "6") || _nl_streq(s, "inet6")) {
+		addr_family = AF_INET6;
+		tokens++;
+	}
+
+	s_addr_pattern = tokens[0];
+	if (!s_addr_pattern) {
+		ck_abort_msg(
+			"the route pattern \"%s\" is invalid and contains no destination address",
+			str);
+	}
+	tokens++;
+
+	s = strchr(s_addr_pattern, '/');
+	if (s) {
+		long int plen2;
+
+		if (s == s_addr_pattern) {
+			ck_abort_msg(
+				"the route pattern \"%s\" contains no valid destination address",
+				str);
+		}
+		addr_free = strndup(s_addr_pattern, s - s_addr_pattern);
+		s_addr_pattern = addr_free;
+		s++;
+
+		errno = 0;
+		plen2 = strtol(s, (char **)&s1, 10);
+		if (errno != 0 || s1[0] != '\0' || plen2 < 0 || plen2 > 128 ||
+		    ((_nltst_str_find_first_not_from_charset(
+			     s, "0123456789"))[0] != '\0')) {
+			ck_abort_msg(
+				"the route pattern \"%s\" contains no valid destination address",
+				str);
+		}
+		plen = plen2;
+	}
+	if ((_nltst_str_find_first_not_from_charset(
+		    s_addr_pattern, "abcdefABCDEF0123456789:.?*"))[0] != '\0') {
+		ck_abort_msg(
+			"the route pattern \"%s\" contains no valid destination address",
+			str);
+	}
+	if (_nltst_inet_pton(addr_family, s_addr_pattern, &addr_family2,
+			     &addr)) {
+		free(addr_free);
+		addr_free = _nltst_inet_ntop_dup(addr_family2, &addr);
+		s_addr_pattern = addr_free;
+		addr_family = addr_family2;
+	} else {
+		if (addr_family == AF_UNSPEC) {
+			ck_abort_msg(
+				"the route pattern \"%s\" contains a wild card address, it requires the address family",
+				str);
+		}
+	}
+
+	ck_assert(addr_family == AF_INET || addr_family == AF_INET6);
+
+	if (plen > (addr_family == AF_INET ? 32 : 128)) {
+		ck_abort_msg(
+			"the route pattern \"%s\" contains no valid destination address (prefix length too large)",
+			str);
+	}
+	ck_assert_int_ge(plen, -1);
+
+	s = tokens[0];
+	if (s) {
+		ck_abort_msg("the route pattern \"%s\" contains extra tokens",
+			     str);
+	}
+
+	if (_nltst_inet_valid(addr_family, s_addr_pattern))
+		_NL_SWAP(&s_addr, &s_addr_pattern);
+
+	_nltst_select_route_clear(out_select_route);
+	memset(out_select_route, 0, sizeof(*out_select_route));
+	*out_select_route = (NLTstSelectRoute){
+		.addr_family = addr_family,
+		.plen = plen,
+		.ifindex = 0,
+		.addr = s_addr ? strdup(s_addr) : NULL,
+		.addr_pattern = s_addr_pattern ? strdup(s_addr_pattern) : NULL,
+	};
+	ck_assert(!s_addr || out_select_route->addr);
+	ck_assert(!s_addr_pattern || out_select_route->addr_pattern);
+	_nltst_assert_select_route(out_select_route);
+}
+
+bool _nltst_select_route_match(struct nl_object *route,
+			       const NLTstSelectRoute *select_route,
+			       bool do_assert)
+{
+	struct nl_addr *addr;
+	struct rtnl_route *route_;
+	int i;
+	char sbuf1[200];
+
+	ck_assert_ptr_nonnull(route);
+	ck_assert_str_eq(nl_object_get_type(route), "route/route");
+
+	if (!select_route)
+		return true;
+
+	route_ = (struct rtnl_route *)route;
+
+	_nltst_assert_select_route(select_route);
+
+#define _check(cond, msg, ...)                                                                                   \
+	do {                                                                                                     \
+		if (do_assert) {                                                                                 \
+			_nl_auto_free char *s1 = NULL;                                                           \
+			_nl_auto_free char *s2 = NULL;                                                           \
+                                                                                                                 \
+			ck_assert_msg(                                                                           \
+				(cond),                                                                          \
+				"Checking condition \"%s\" for route \"%s\" (expected \"%s\") failed (msg: " msg \
+				")",                                                                             \
+				#cond, (s1 = _nltst_object_to_string(route)),                                    \
+				(s2 = _nltst_select_route_to_string(                                             \
+					 select_route)),                                                         \
+				##__VA_ARGS__);                                                                  \
+		} else if (cond) {                                                                               \
+		} else {                                                                                         \
+			return false;                                                                            \
+		}                                                                                                \
+	} while (0)
+
+	if (select_route->addr_family != AF_UNSPEC) {
+		_check(rtnl_route_get_family(route_) ==
+			       select_route->addr_family,
+		       "mismatching address family");
+	}
+
+	if (select_route->ifindex != 0) {
+		struct nl_list_head *list;
+		struct rtnl_nexthop *nh;
+		size_t n;
+		struct rtnl_nexthop *nh2;
+
+		list = rtnl_route_get_nexthops(route_);
+		_check(list, "no nexthops for ifindex");
+
+		n = 0;
+		nl_list_for_each_entry(nh, list, rtnh_list) {
+			nh2 = nh;
+			n++;
+		}
+		_check(n == 1, "expects one nexthop for ifindex but got %zu",
+		       n);
+		ck_assert_ptr_nonnull(nh2);
+
+		i = rtnl_route_nh_get_ifindex(nh2);
+		_check(i == select_route->ifindex,
+		       "route has unexpected ifindex %d for next hop", i);
+	}
+
+	addr = rtnl_route_get_dst(route_);
+
+	if (addr) {
+		if (select_route->addr_family != AF_UNSPEC) {
+			_check(nl_addr_get_family(addr) ==
+				       select_route->addr_family,
+			       "unexecpted address family of dst");
+		}
+	}
+
+	if (select_route->plen != -1) {
+		_check(addr, "missing address");
+		_check(nl_addr_get_prefixlen(addr) ==
+			       (unsigned)select_route->plen,
+		       "unexpected prefix length");
+	}
+	if (select_route->addr || select_route->addr_pattern) {
+		_check(addr, "missing address");
+
+		_nl_inet_ntop(nl_addr_get_family(addr),
+			      nl_addr_get_binary_addr(addr), sbuf1);
+
+		ck_assert(strlen(sbuf1) > 0);
+		ck_assert(strlen(sbuf1) < sizeof(sbuf1));
+
+		if (select_route->addr) {
+			_check(_nl_streq(sbuf1, select_route->addr),
+			       "unexpected address, \"%s\" does not match \"%s\"",
+			       sbuf1, select_route->addr);
+		}
+		if (select_route->addr_pattern) {
+			_check(fnmatch(select_route->addr_pattern, sbuf1, 0) ==
+				       0,
+			       "unexpected address, \"%s\" does not match pattern \"%s\"",
+			       sbuf1, select_route->addr_pattern);
+		}
+	}
+
+#undef _check
+
+	return false;
+}
+
+/*****************************************************************************/
+
+void _nltst_assert_route_list(struct nl_object *const *objs, ssize_t len,
+			      const char *const *expected_routes)
+{
+	size_t l;
+	size_t i;
+
+	if (len < 0) {
+		l = 0;
+		if (objs) {
+			while (objs[l])
+				l++;
+		}
+	} else
+		l = len;
+
+	for (i = 0; i < l; i++) {
+		struct nl_object *route = objs[i];
+		_nltst_auto_clear_select_route NLTstSelectRoute select_route = {
+			0
+		};
+		_nl_auto_free char *s = _nltst_object_to_string(route);
+
+		if (!expected_routes[i]) {
+			ck_abort_msg(
+				"No more expected route, but have route %zu (of %zu) as %s",
+				i + 1, l, s);
+		}
+
+		_nltst_select_route_parse(expected_routes[i], &select_route);
+
+		_nltst_select_route_match(route, &select_route, true);
+	}
+}
+
+void _nltst_assert_route_cache_v(struct nl_cache *cache,
+				 const char *const *expected_routes)
+{
+	_nl_auto_free struct nl_object **objs = NULL;
+	size_t len;
+
+	ck_assert(cache);
+	ck_assert(expected_routes);
+
+	objs = _nltst_cache_get_all(cache, &len);
+
+	_nltst_assert_route_list(objs, len, expected_routes);
 }

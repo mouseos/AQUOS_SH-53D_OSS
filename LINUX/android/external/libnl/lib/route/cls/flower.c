@@ -3,18 +3,41 @@
  * Copyright (c) 2018 Volodymyr Bendiuga <volodymyr.bendiuga@gmail.com>
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/tc.h>
+#include "nl-default.h"
+
+#include <linux/ethtool.h>
+
 #include <netlink/netlink.h>
 #include <netlink/attr.h>
 #include <netlink/utils.h>
-#include <netlink-private/route/tc-api.h>
 #include <netlink/route/classifier.h>
 #include <netlink/route/action.h>
 #include <netlink/route/cls/flower.h>
 
+#include "tc-api.h"
+#include "nl-aux-route/nl-route.h"
 
 /** @cond SKIP */
+struct rtnl_flower {
+	struct rtnl_act *cf_act;
+	int cf_mask;
+	uint32_t cf_flags;
+	uint16_t cf_proto;
+	uint16_t cf_vlan_id;
+	uint16_t cf_vlan_ethtype;
+	uint8_t cf_vlan_prio;
+	uint8_t cf_src_mac[ETH_ALEN];
+	uint8_t cf_src_mac_mask[ETH_ALEN];
+	uint8_t cf_dst_mac[ETH_ALEN];
+	uint8_t cf_dst_mac_mask[ETH_ALEN];
+	in_addr_t cf_ipv4_src;
+	in_addr_t cf_ipv4_src_mask;
+	in_addr_t cf_ipv4_dst;
+	in_addr_t cf_ipv4_dst_mask;
+	uint8_t cf_ip_dscp;
+	uint8_t cf_ip_dscp_mask;
+};
+
 #define FLOWER_ATTR_FLAGS         (1 << 0)
 #define FLOWER_ATTR_ACTION        (1 << 1)
 #define FLOWER_ATTR_VLAN_ID       (1 << 2)
@@ -787,6 +810,7 @@ int rtnl_flower_get_ipv4_dst(struct rtnl_cls *cls, in_addr_t *out_addr,
 int rtnl_flower_append_action(struct rtnl_cls *cls, struct rtnl_act *act)
 {
 	struct rtnl_flower *f;
+	int err;
 
 	if (!act)
 		return 0;
@@ -794,10 +818,11 @@ int rtnl_flower_append_action(struct rtnl_cls *cls, struct rtnl_act *act)
 	if (!(f = rtnl_tc_data(TC_CAST(cls))))
 		return -NLE_NOMEM;
 
-	f->cf_mask |= FLOWER_ATTR_ACTION;
+	if ((err = _rtnl_act_append_get(&f->cf_act, act)) < 0)
+		return err;
 
-	rtnl_act_get(act);
-	return rtnl_act_append(&f->cf_act, act);
+	f->cf_mask |= FLOWER_ATTR_ACTION;
+	return 0;
 }
 
 /**
@@ -885,12 +910,12 @@ static struct rtnl_tc_ops flower_ops = {
 	},
 };
 
-static void __init flower_init(void)
+static void _nl_init flower_init(void)
 {
 	rtnl_tc_register(&flower_ops);
 }
 
-static void __exit flower_exit(void)
+static void _nl_exit flower_exit(void)
 {
 	rtnl_tc_unregister(&flower_ops);
 }

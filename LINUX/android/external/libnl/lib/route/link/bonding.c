@@ -14,10 +14,186 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
+#include "nl-default.h"
+
 #include <netlink/netlink.h>
 #include <netlink/route/link/bonding.h>
-#include <netlink-private/route/link/api.h>
+
+#include "nl-route.h"
+#include "link-api.h"
+
+#define BOND_HAS_MODE		(1 << 0)
+#define BOND_HAS_ACTIVE_SLAVE	(1 << 1)
+#define BOND_HAS_HASHING_TYPE	(1 << 2)
+#define BOND_HAS_MIIMON		(1 << 3)
+#define BOND_HAS_MIN_LINKS	(1 << 4)
+
+struct bond_info {
+	uint8_t bn_mode;
+	uint8_t hashing_type;
+	uint32_t ifindex;
+	uint32_t bn_mask;
+	uint32_t miimon;
+	uint32_t min_links;
+};
+
+static int bond_info_alloc(struct rtnl_link *link)
+{
+	struct bond_info *bn;
+
+	if (link->l_info)
+		memset(link->l_info, 0, sizeof(*bn));
+	else {
+		bn = calloc(1, sizeof(*bn));
+		if (!bn)
+			return -NLE_NOMEM;
+
+		link->l_info = bn;
+	}
+
+	return 0;
+}
+
+static void bond_info_free(struct rtnl_link *link)
+{
+	_nl_clear_free(&link->l_info);
+}
+
+static int bond_put_attrs(struct nl_msg *msg, struct rtnl_link *link)
+{
+	struct bond_info *bn = link->l_info;
+	struct nlattr *data;
+
+	data = nla_nest_start(msg, IFLA_INFO_DATA);
+	if (!data)
+		return -NLE_MSGSIZE;
+	if (bn->bn_mask & BOND_HAS_MODE)
+		NLA_PUT_U8(msg, IFLA_BOND_MODE, bn->bn_mode);
+
+	if (bn->bn_mask & BOND_HAS_ACTIVE_SLAVE)
+		NLA_PUT_U32(msg, IFLA_BOND_ACTIVE_SLAVE, bn->ifindex);
+
+	if (bn->bn_mask & BOND_HAS_HASHING_TYPE)
+		NLA_PUT_U8(msg, IFLA_BOND_XMIT_HASH_POLICY, bn->hashing_type);
+
+	if (bn->bn_mask & BOND_HAS_MIIMON)
+		NLA_PUT_U32(msg, IFLA_BOND_MIIMON, bn->miimon);
+
+	if (bn->bn_mask & BOND_HAS_MIN_LINKS)
+		NLA_PUT_U32(msg, IFLA_BOND_MIN_LINKS, bn->min_links);
+
+	nla_nest_end(msg, data);
+	return 0;
+
+nla_put_failure:
+	nla_nest_cancel(msg, data);
+	return -NLE_MSGSIZE;
+}
+
+static struct rtnl_link_info_ops bonding_info_ops = {
+	.io_name		= "bond",
+	.io_alloc		= bond_info_alloc,
+	.io_put_attrs		= bond_put_attrs,
+	.io_free		= bond_info_free,
+};
+
+#define IS_BOND_INFO_ASSERT(link)                                                    \
+	do {                                                                         \
+		if (link->l_info_ops != &bonding_info_ops) {                         \
+			APPBUG("Link is not a bond link. Set type \"bond\" first."); \
+		}                                                                    \
+	} while (0)
+
+/**
+ * Set active slave for bond
+ * @arg link            Link object of type bond
+ * @arg active          ifindex of active slave to set
+ *
+ * @return void
+ */
+void rtnl_link_bond_set_activeslave(struct rtnl_link *link, int active_slave)
+{
+	struct bond_info *bn = link->l_info;
+
+	IS_BOND_INFO_ASSERT(link);
+
+	bn->ifindex = active_slave;
+
+	bn->bn_mask |= BOND_HAS_ACTIVE_SLAVE;
+}
+
+/**
+ * Set bond mode
+ * @arg link            Link object of type bond
+ * @arg mode            bond mode to set
+ *
+ * @return void
+ */
+void rtnl_link_bond_set_mode(struct rtnl_link *link, uint8_t mode)
+{
+	struct bond_info *bn = link->l_info;
+
+	IS_BOND_INFO_ASSERT(link);
+
+	bn->bn_mode = mode;
+
+	bn->bn_mask |= BOND_HAS_MODE;
+}
+
+/**
+ * Set hashing type
+ * @arg link            Link object of type bond
+ * @arg type            bond hashing type to set
+ *
+ * @return void
+ */
+void rtnl_link_bond_set_hashing_type (struct rtnl_link *link, uint8_t type)
+{
+	struct bond_info *bn = link->l_info;
+
+	IS_BOND_INFO_ASSERT(link);
+
+	bn->hashing_type = type;
+
+	bn->bn_mask |= BOND_HAS_HASHING_TYPE;
+}
+
+/**
+ * Set MII monitoring interval
+ * @arg link            Link object of type bond
+ * @arg miimon          interval in milliseconds
+ *
+ * @return void
+ */
+void rtnl_link_bond_set_miimon (struct rtnl_link *link, uint32_t miimon)
+{
+	struct bond_info *bn = link->l_info;
+
+	IS_BOND_INFO_ASSERT(link);
+
+	bn->miimon = miimon;
+
+	bn->bn_mask |= BOND_HAS_MIIMON;
+}
+
+/**
+ * Set the minimum number of member ports that must be up before
+ * marking the bond device as up
+ * @arg link            Link object of type bond
+ * @arg min_links       Number of links
+ *
+ * @return void
+ */
+void rtnl_link_bond_set_min_links (struct rtnl_link *link, uint32_t min_links)
+{
+	struct bond_info *bn = link->l_info;
+
+	IS_BOND_INFO_ASSERT(link);
+
+	bn->min_links = min_links;
+
+	bn->bn_mask |= BOND_HAS_MIN_LINKS;
+}
 
 /**
  * Allocate link object of type bond
@@ -204,16 +380,12 @@ int rtnl_link_bond_release(struct nl_sock *sock, struct rtnl_link *slave)
 				rtnl_link_get_ifindex(slave));
 }
 
-static struct rtnl_link_info_ops bonding_info_ops = {
-	.io_name		= "bond",
-};
-
-static void __init bonding_init(void)
+static void _nl_init bonding_init(void)
 {
 	rtnl_link_register_info(&bonding_info_ops);
 }
 
-static void __exit bonding_exit(void)
+static void _nl_exit bonding_exit(void)
 {
 	rtnl_link_unregister_info(&bonding_info_ops);
 }

@@ -40,6 +40,7 @@ cc_library_headers {
         "tune",
         "label",
         "dump",
+	"exfat2img",
     ],
 }
 
@@ -47,8 +48,5 @@ cc_defaults {
     name: "exfatprogs-defaults",
     header_libs: ["libexfatprogs-headers"],
     export_header_lib_headers: ["libexfatprogs-headers"],
-    cflags: [
-        "-D_FILE_OFFSET_BITS=64",
-        "-Wno-unused-parameter",
-    ],
+    cflags: ["-D_FILE_OFFSET_BITS=64"],
 }

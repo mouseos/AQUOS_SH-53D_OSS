@@ -9,15 +9,25 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/tc.h>
+#include "nl-default.h"
+
+#include <linux/ethtool.h>
+
 #include <netlink/netlink.h>
 #include <netlink/utils.h>
-#include <netlink-private/route/tc-api.h>
 #include <netlink/route/classifier.h>
 #include <netlink/route/link.h>
 
+#include "nl-route.h"
+#include "tc-api.h"
+
 /** @cond SKIP */
+struct rtnl_cls {
+	NL_TC_GENERIC(c);
+	uint16_t c_prio;
+	uint16_t c_protocol;
+};
+
 #define CLS_ATTR_PRIO		(TCA_ATTR_MAX << 1)
 #define CLS_ATTR_PROTOCOL	(TCA_ATTR_MAX << 2)
 /** @endcond */
@@ -215,7 +225,7 @@ int rtnl_cls_build_change_request(struct rtnl_cls *cls, int flags,
  * sends the request to the kernel and waits for the next ACK to be
  * received and thus blocks until the request has been processed.
  *
- * @return 0 on sucess or a negative error if an error occured.
+ * @return 0 on success or a negative error if an error occured.
  */
 int rtnl_cls_change(struct nl_sock *sk, struct rtnl_cls *cls, int flags)
 {
@@ -383,7 +393,7 @@ struct rtnl_cls *rtnl_cls_find_by_handle(struct nl_cache *cache, int ifindex, ui
 
 	nl_list_for_each_entry(cls, &cache->c_items, ce_list) {
 		if ((cls->c_parent == parent) &&
-		    (cls->c_ifindex == ifindex)&&
+		    cls->c_ifindex == ((unsigned)ifindex) &&
 		    (cls->c_handle == handle)) {
 			nl_object_get((struct nl_object *) cls);
 			return cls;
@@ -419,9 +429,9 @@ struct rtnl_cls *rtnl_cls_find_by_prio(struct nl_cache *cache, int ifindex,
 
 	nl_list_for_each_entry(cls, &cache->c_items, ce_list) {
 		if ((cls->c_parent == parent) &&
-		    (cls->c_ifindex == ifindex) &&
+		    cls->c_ifindex == ((unsigned)ifindex) &&
 		    (cls->c_prio == prio)) {
-			nl_object_get((struct nl_object *) cls);
+			nl_object_get((struct nl_object *)cls);
 			return cls;
 		}
 	}
@@ -516,13 +526,13 @@ static struct nl_object_ops cls_obj_ops = {
 	.oo_id_attrs		= (TCA_ATTR_IFINDEX | TCA_ATTR_HANDLE),
 };
 
-static void __init cls_init(void)
+static void _nl_init cls_init(void)
 {
 	rtnl_tc_type_register(&cls_ops);
 	nl_cache_mngt_register(&rtnl_cls_ops);
 }
 
-static void __exit cls_exit(void)
+static void _nl_exit cls_exit(void)
 {
 	nl_cache_mngt_unregister(&rtnl_cls_ops);
 	rtnl_tc_type_unregister(&cls_ops);

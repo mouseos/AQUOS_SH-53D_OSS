@@ -12,9 +12,6 @@
 #include "mbrpart.h"
 
 #define MBR_SIGNATURE UINT16_C(0xAA55)
-/* SHARP_EXTEND [19-31-1] vold sd encrypt Start */
-#define MBR_SIGNATURE_REVERSE UINT16_C(0x55AA)
-/* SHARP_EXTEND [19-31-1] vold sd encrypt End */
 
 // Maximum number of MBR partitions
 #define MAX_MBR_PARTS 128

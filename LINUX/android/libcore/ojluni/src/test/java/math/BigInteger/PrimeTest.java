@@ -4,9 +4,7 @@
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ * published by the Free Software Foundation.
  *
  * This code is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
@@ -45,6 +43,8 @@ import java.util.TreeSet;
 import static java.util.stream.Collectors.toCollection;
 import static java.util.stream.Collectors.toList;
 
+import android.platform.test.annotations.LargeTest;
+
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -55,6 +55,7 @@ public class PrimeTest {
     private static final int DEFAULT_CERTAINTY = 100;
     private static final int NUM_NON_PRIMES = 10000;
 
+    @LargeTest
     @Test
     public void testPrimes() throws Exception {
         // Get primes through specified bound (inclusive) and Integer.MAX_VALUE

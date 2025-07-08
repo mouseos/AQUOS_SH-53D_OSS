@@ -3,12 +3,14 @@
  * Copyright (c) 2008-2013 Thomas Graf <tgraf@suug.ch>
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/tc.h>
+#include "nl-default.h"
+
 #include <netlink/netlink.h>
 #include <netlink/route/cls/ematch.h>
 
-static int container_parse(struct rtnl_ematch *e, void *data, size_t len __attribute__((unused)))
+#include "nl-route.h"
+
+static int container_parse(struct rtnl_ematch *e, void *data, size_t len)
 {
 	/*
 	The kernel may provide more than 4 bytes of data in the future and we want
@@ -35,7 +37,7 @@ static struct rtnl_ematch_ops container_ops = {
 	.eo_fill	= container_fill,
 };
 
-static void __init container_init(void)
+static void _nl_init container_init(void)
 {
 	rtnl_ematch_register(&container_ops);
 }

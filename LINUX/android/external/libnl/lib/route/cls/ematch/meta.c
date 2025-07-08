@@ -10,12 +10,15 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/tc.h>
+#include "nl-default.h"
+
+#include <linux/tc_ematch/tc_em_meta.h>
+
 #include <netlink/netlink.h>
 #include <netlink/route/cls/ematch.h>
 #include <netlink/route/cls/ematch/meta.h>
-#include <linux/tc_ematch/tc_em_meta.h>
+
+#include "nl-priv-dynamic-core/nl-core.h"
 
 struct rtnl_meta_value
 {
@@ -322,7 +325,7 @@ static struct rtnl_ematch_ops meta_ops = {
 	.eo_free	= meta_free,
 };
 
-static void __init meta_init(void)
+static void _nl_init meta_init(void)
 {
 	rtnl_ematch_register(&meta_ops);
 }

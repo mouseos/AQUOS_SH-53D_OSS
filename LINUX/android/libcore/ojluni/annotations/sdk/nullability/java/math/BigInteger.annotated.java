@@ -124,7 +124,7 @@ public class BigInteger extends java.lang.Number implements java.lang.Comparable
 
     public int compareTo(@libcore.util.NonNull BigInteger val) { return 0; }
 
-    public boolean equals(@libcore.util.NonNull Object x) { return false; }
+    public boolean equals(@libcore.util.Nullable Object x) { return false; }
 
     @libcore.util.NonNull public BigInteger min(@libcore.util.NonNull BigInteger val) { throw new RuntimeException("Stub!"); }
 

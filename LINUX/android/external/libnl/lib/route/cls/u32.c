@@ -12,19 +12,33 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/tc.h>
+#include "nl-default.h"
+
 #include <netlink/netlink.h>
 #include <netlink/attr.h>
 #include <netlink/utils.h>
-#include <netlink-private/route/tc-api.h>
 #include <netlink/route/classifier.h>
 #include <netlink/route/cls/u32.h>
 #include <netlink/route/action.h>
 
-#include "netlink-private/utils.h"
+#include "tc-api.h"
+#include "nl-aux-route/nl-route.h"
 
 /** @cond SKIP */
+struct rtnl_u32 {
+	uint32_t cu_divisor;
+	uint32_t cu_hash;
+	uint32_t cu_classid;
+	uint32_t cu_link;
+	struct nl_data *cu_pcnt;
+	struct nl_data *cu_selector;
+	struct nl_data *cu_mark;
+	struct rtnl_act *cu_act;
+	struct nl_data *cu_police;
+	char cu_indev[IFNAMSIZ];
+	int cu_mask;
+};
+
 #define U32_ATTR_DIVISOR      0x001
 #define U32_ATTR_HASH         0x002
 #define U32_ATTR_CLASSID      0x004
@@ -140,7 +154,7 @@ static int u32_msg_parser(struct rtnl_tc *tc, void *data)
 		sel = u->cu_selector->d_data;
 		pcnt_size = sizeof(struct tc_u32_pcnt) +
 				(sel->nkeys * sizeof(uint64_t));
-		if (nla_len(tb[TCA_U32_PCNT]) < pcnt_size) {
+		if (_nla_len(tb[TCA_U32_PCNT]) < pcnt_size) {
 			err = -NLE_INVAL;
 			goto errout;
 		}
@@ -598,12 +612,10 @@ int rtnl_u32_add_action(struct rtnl_cls *cls, struct rtnl_act *act)
 	if (!(u = rtnl_tc_data(TC_CAST(cls))))
 		return -NLE_NOMEM;
 
-	u->cu_mask |= U32_ATTR_ACTION;
-	if ((err = rtnl_act_append(&u->cu_act, act)))
+	if ((err = _rtnl_act_append_get(&u->cu_act, act)) < 0)
 		return err;
 
-	/* In case user frees it */
-	rtnl_act_get(act);
+	u->cu_mask |= U32_ATTR_ACTION;
 	return 0;
 }
 
@@ -885,12 +897,12 @@ static struct rtnl_tc_ops u32_ops = {
 	},
 };
 
-static void __init u32_init(void)
+static void _nl_init u32_init(void)
 {
 	rtnl_tc_register(&u32_ops);
 }
 
-static void __exit u32_exit(void)
+static void _nl_exit u32_exit(void)
 {
 	rtnl_tc_unregister(&u32_ops);
 }

@@ -10,7 +10,7 @@
 # CONFIG_LOCALVERSION from some future config system.
 #
 VERSION = 1
-PATCHLEVEL = 6
+PATCHLEVEL = 7
 SUBLEVEL = 0
 EXTRAVERSION =
 LOCAL_VERSION =
@@ -21,7 +21,7 @@ CONFIG_LOCALVERSION =
 ASSUME_MASK ?= 0
 
 CPPFLAGS = -I libfdt -I . -DFDT_ASSUME_MASK=$(ASSUME_MASK)
-WARNINGS = -Wall -Wpointer-arith -Wcast-qual -Wnested-externs \
+WARNINGS = -Wall -Wpointer-arith -Wcast-qual -Wnested-externs -Wsign-compare \
 	-Wstrict-prototypes -Wmissing-prototypes -Wredundant-decls -Wshadow
 CFLAGS = -g -Os $(SHAREDLIB_CFLAGS) -Werror $(WARNINGS) $(EXTRA_CFLAGS)
 
@@ -59,6 +59,7 @@ ifeq ($(NO_YAML),1)
 	CFLAGS += -DNO_YAML
 else
 	LDLIBS_dtc += $(shell $(PKG_CONFIG) --libs yaml-0.1)
+	CFLAGS += $(shell $(PKG_CONFIG) --cflags yaml-0.1)
 endif
 
 ifeq ($(HOSTOS),darwin)
@@ -197,6 +198,13 @@ LIBFDT_lib = $(LIBFDT_dir)/$(LIBFDT_LIB)
 LIBFDT_include = $(addprefix $(LIBFDT_dir)/,$(LIBFDT_INCLUDES))
 LIBFDT_version = $(addprefix $(LIBFDT_dir)/,$(LIBFDT_VERSION))
 
+ifeq ($(STATIC_BUILD),1)
+	CFLAGS += -static
+	LIBFDT_dep = $(LIBFDT_archive)
+else
+	LIBFDT_dep = $(LIBFDT_lib)
+endif
+
 include $(LIBFDT_dir)/Makefile.libfdt
 
 .PHONY: libfdt
@@ -260,11 +268,11 @@ convert-dtsv0: $(CONVERT_OBJS)
 
 fdtdump:	$(FDTDUMP_OBJS)
 
-fdtget:	$(FDTGET_OBJS) $(LIBFDT_lib)
+fdtget:	$(FDTGET_OBJS) $(LIBFDT_dep)
 
-fdtput:	$(FDTPUT_OBJS) $(LIBFDT_lib)
+fdtput:	$(FDTPUT_OBJS) $(LIBFDT_dep)
 
-fdtoverlay: $(FDTOVERLAY_OBJS) $(LIBFDT_lib)
+fdtoverlay: $(FDTOVERLAY_OBJS) $(LIBFDT_dep)
 
 dist:
 	git archive --format=tar --prefix=dtc-$(dtc_version)/ HEAD \
@@ -376,8 +384,16 @@ clean: libfdt_clean pylibfdt_clean tests_clean
 	@$(VECHO) LEX $@
 	$(LEX) -o$@ $<
 
-%.tab.c %.tab.h %.output: %.y
+%.tab.c %.tab.h: %.y
 	@$(VECHO) BISON $@
 	$(BISON) -b $(basename $(basename $@)) -d $<
 
+# Some checks expect dtc-parser.h, so create link
+dtc-parser.h: dtc-parser.tab.h
+	ln -s $^ $@
+
 FORCE:
+
+ifeq ($(MAKE_RESTARTS),10)
+$(error "Make re-executed itself $(MAKE_RESTARTS) times. Infinite recursion?")
+endif

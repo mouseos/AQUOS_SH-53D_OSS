@@ -10,12 +10,13 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/tc.h>
+#include "nl-default.h"
+
+#include <linux/tc_ematch/tc_em_cmp.h>
+
 #include <netlink/netlink.h>
 #include <netlink/route/cls/ematch.h>
 #include <netlink/route/cls/ematch/cmp.h>
-#include <linux/tc_ematch/tc_em_cmp.h>
 
 void rtnl_ematch_cmp_set(struct rtnl_ematch *e, struct tcf_em_cmp *cfg)
 {
@@ -80,7 +81,7 @@ static struct rtnl_ematch_ops cmp_ops = {
 	.eo_dump	= cmp_dump,
 };
 
-static void __init cmp_init(void)
+static void _nl_init cmp_init(void)
 {
 	rtnl_ematch_register(&cmp_ops);
 }

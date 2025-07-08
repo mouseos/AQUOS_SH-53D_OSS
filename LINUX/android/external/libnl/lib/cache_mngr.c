@@ -26,13 +26,30 @@
  * ~~~~
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/utils.h>
+#include "nl-default.h"
+
 #include <netlink/netlink.h>
 #include <netlink/cache.h>
 #include <netlink/utils.h>
 
+#include "nl-core.h"
+#include "nl-priv-dynamic-core/nl-core.h"
+#include "nl-priv-dynamic-core/cache-api.h"
+#include "nl-aux-core/nl-core.h"
+
+#define NL_ALLOCATED_SYNC_SOCK 4
+
 /** @cond SKIP */
+struct nl_cache_mngr
+{
+	int			cm_protocol;
+	int			cm_flags;
+	int			cm_nassocs;
+	struct nl_sock *	cm_sock;
+	struct nl_sock *	cm_sync_sock;
+	struct nl_cache_assoc *	cm_assocs;
+};
+
 #define NASSOC_INIT		16
 #define NASSOC_EXPAND		8
 /** @endcond */
@@ -43,10 +60,9 @@ static int include_cb(struct nl_object *obj, struct nl_parser_param *p)
 	struct nl_cache_ops *ops = ca->ca_cache->c_ops;
 
 	NL_DBG(2, "Including object %p into cache %p\n", obj, ca->ca_cache);
-#ifdef NL_DEBUG
-	if (nl_debug >= 4)
+
+	if (NL_DEBUG && nl_debug >= 4)
 		nl_object_dump(obj, &nl_debug_dp);
-#endif
 
 	if (ops->co_event_filter)
 		if (ops->co_event_filter(ca->ca_cache, obj) != NL_OK)
@@ -78,10 +94,9 @@ static int event_input(struct nl_msg *msg, void *arg)
 
 	NL_DBG(2, "Cache manager %p, handling new message %p as event\n",
 	       mngr, msg);
-#ifdef NL_DEBUG
-	if (nl_debug >= 4)
+
+	if (NL_DEBUG && nl_debug >= 4)
 		nl_msg_dump(msg, stderr);
-#endif
 
 	if (mngr->cm_protocol != protocol)
 		BUG();
@@ -136,62 +151,75 @@ found:
 int nl_cache_mngr_alloc(struct nl_sock *sk, int protocol, int flags,
 			struct nl_cache_mngr **result)
 {
-	struct nl_cache_mngr *mngr;
-	int err = -NLE_NOMEM;
+	return nl_cache_mngr_alloc_ex(sk, NULL, protocol, flags, result);
+}
+
+/**
+ * Allocate new cache manager, with custom callback on refill socket
+ * @arg sk		Netlink socket or NULL to auto allocate
+ * @arg sync_sk		Blocking Netlink socket for cache refills
+ * @arg protocol	Netlink protocol this manager is used for
+ * @arg flags		Flags (\c NL_AUTO_PROVIDE)
+ * @arg result		Result pointer
+ *
+ * Same as \f nl_cache_mngr_alloc, but sets custom refill socket
+ * Note: ownership of the sync_sk passes to the cache manager
+ */
+int nl_cache_mngr_alloc_ex(struct nl_sock *sk, struct nl_sock *sync_sk, int protocol, int flags,
+			struct nl_cache_mngr **result)
+{
+	_nl_auto_nl_cache_mngr struct nl_cache_mngr *mngr = NULL;
+	int err;
 
 	/* Catch abuse of flags */
 	if (flags & NL_ALLOCATED_SOCK)
 		BUG();
+	flags = flags & NL_AUTO_PROVIDE;
 
 	mngr = calloc(1, sizeof(*mngr));
 	if (!mngr)
 		return -NLE_NOMEM;
 
+	mngr->cm_flags = flags;
+
 	if (!sk) {
 		if (!(sk = nl_socket_alloc()))
-			goto errout;
-
-		flags |= NL_ALLOCATED_SOCK;
+			return -NLE_NOMEM;
+		mngr->cm_flags |= NL_ALLOCATED_SOCK;
 	}
-
 	mngr->cm_sock = sk;
+
+	if(!sync_sk) {
+		if (!(sync_sk = nl_socket_alloc()))
+			return -NLE_NOMEM;
+		mngr->cm_flags |= NL_ALLOCATED_SYNC_SOCK;
+	}
+	mngr->cm_sync_sock = sync_sk;
+
 	mngr->cm_nassocs = NASSOC_INIT;
 	mngr->cm_protocol = protocol;
-	mngr->cm_flags = flags;
 	mngr->cm_assocs = calloc(mngr->cm_nassocs,
 				 sizeof(struct nl_cache_assoc));
 	if (!mngr->cm_assocs)
-		goto errout;
+		return -NLE_NOMEM;
 
 	/* Required to receive async event notifications */
 	nl_socket_disable_seq_check(mngr->cm_sock);
 
 	if ((err = nl_connect(mngr->cm_sock, protocol)) < 0)
-		goto errout;
+		return err;
 
 	if ((err = nl_socket_set_nonblocking(mngr->cm_sock)) < 0)
-		goto errout;
+		return err;
 
-	/* Create and allocate socket for sync cache fills */
-	mngr->cm_sync_sock = nl_socket_alloc();
-	if (!mngr->cm_sync_sock) {
-		err = -NLE_NOMEM;
-		goto errout;
-	}
 	if ((err = nl_connect(mngr->cm_sync_sock, protocol)) < 0)
-		goto errout_free_sync_sock;
+		return err;
 
 	NL_DBG(1, "Allocated cache manager %p, protocol %d, %d caches\n",
 	       mngr, protocol, mngr->cm_nassocs);
 
-	*result = mngr;
+	*result = _nl_steal_pointer(&mngr);
 	return 0;
-
-errout_free_sync_sock:
-	nl_socket_free(mngr->cm_sync_sock);
-errout:
-	nl_cache_mngr_free(mngr);
-	return err;
 }
 
 /**
@@ -609,13 +637,14 @@ void nl_cache_mngr_free(struct nl_cache_mngr *mngr)
 	if (mngr->cm_sock)
 		nl_close(mngr->cm_sock);
 
-	if (mngr->cm_sync_sock) {
+	if (mngr->cm_sync_sock)
 		nl_close(mngr->cm_sync_sock);
-		nl_socket_free(mngr->cm_sync_sock);
-	}
 
 	if (mngr->cm_flags & NL_ALLOCATED_SOCK)
 		nl_socket_free(mngr->cm_sock);
+
+	if (mngr->cm_flags & NL_ALLOCATED_SYNC_SOCK)
+		nl_socket_free(mngr->cm_sync_sock);
 
 	for (i = 0; i < mngr->cm_nassocs; i++) {
 		if (mngr->cm_assocs[i].ca_cache) {

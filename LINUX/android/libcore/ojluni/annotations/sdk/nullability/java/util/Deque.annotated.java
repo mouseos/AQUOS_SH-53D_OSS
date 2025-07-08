@@ -93,4 +93,6 @@ public int size();
 @libcore.util.NonNull public java.util.Iterator<@libcore.util.NullFromTypeParam E> iterator();
 
 @libcore.util.NonNull public java.util.Iterator<@libcore.util.NullFromTypeParam E> descendingIterator();
+
+@libcore.util.NonNull public default java.util.Deque<E> reversed() { throw new RuntimeException("Stub!"); }
 }

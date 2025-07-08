@@ -64,6 +64,11 @@ import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertSame;
 import static org.testng.Assert.assertTrue;
 
+import dalvik.annotation.compat.VersionCodes;
+
+import libcore.test.annotation.NonMts;
+import libcore.test.reasons.NonMtsReasons;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.ObjectInputStream;
@@ -162,7 +167,7 @@ public class TCKChronology {
         // Android-changed: Change expected values to CLDR values here. This test seems to be based
         // on an old CLDR version (21) with some "invented" values (specifically Hijrah and ISO).
         return new Object[][] {
-                    {"Hijrah", "Islamic Calendar (Umm al-Qura)"},
+                    {"Hijrah", "Hijri Calendar (Umm al-Qura)"},
                     {"ISO", "ISO-8601 Calendar"},
                     {"Japanese", "Japanese Calendar"},
                     {"Minguo", "Minguo Calendar"},
@@ -170,6 +175,8 @@ public class TCKChronology {
                 };
     }
 
+    @NonMts(reason = NonMtsReasons.ICU_VERSION_DEPENDENCY,
+        disabledUntilSdk = VersionCodes.VANILLA_ICE_CREAM)
     @Test(dataProvider = "calendarDisplayName")
     public void test_getDisplayName(String chronoId, String calendarDisplayName) {
         Chronology chrono = Chronology.of(chronoId);

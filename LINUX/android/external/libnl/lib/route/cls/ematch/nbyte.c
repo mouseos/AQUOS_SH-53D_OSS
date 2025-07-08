@@ -10,12 +10,13 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/tc.h>
+#include "nl-default.h"
+
+#include <linux/tc_ematch/tc_em_nbyte.h>
+
 #include <netlink/netlink.h>
 #include <netlink/route/cls/ematch.h>
 #include <netlink/route/cls/ematch/nbyte.h>
-#include <linux/tc_ematch/tc_em_nbyte.h>
 
 struct nbyte_data
 {
@@ -126,7 +127,7 @@ static struct rtnl_ematch_ops nbyte_ops = {
 	.eo_free	= nbyte_free,
 };
 
-static void __init nbyte_init(void)
+static void _nl_init nbyte_init(void)
 {
 	rtnl_ematch_register(&nbyte_ops);
 }

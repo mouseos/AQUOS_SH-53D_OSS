@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 #
 # Copyright 2015 The Android Open Source Project
 #
@@ -40,9 +40,16 @@ TCP_NOT_YET_ACCEPTED = -1
 
 class TcpBaseTest(multinetwork_base.MultiNetworkBaseTest):
 
-  def tearDown(self):
+  def CloseSockets(self):
+    if hasattr(self, "accepted"):
+      self.accepted.close()
+      del self.accepted
     if hasattr(self, "s"):
       self.s.close()
+      del self.s
+
+  def tearDown(self):
+    self.CloseSockets()
     super(TcpBaseTest, self).tearDown()
 
   def OpenListenSocket(self, version, netid):
@@ -122,7 +129,7 @@ class TcpBaseTest(multinetwork_base.MultiNetworkBaseTest):
     self.ExpectPacketOn(netid, msg + ": expecting %s" % desc, data)
 
     desc, fin = packets.FIN(version, remoteaddr, myaddr, data)
-    fin = packets._GetIpLayer(version)(str(fin))
+    fin = packets._GetIpLayer(version)(bytes(fin))
     ack_desc, ack = packets.ACK(version, myaddr, remoteaddr, fin)
     msg = "Received %s, expected to see reply %s" % (desc, ack_desc)
 

@@ -6,9 +6,6 @@
  *
  * Dual licensed under the GPL or LGPL version 2 licenses.
  */
-#define _LARGEFILE64_SOURCE
-#define _FILE_OFFSET_BITS 64
-
 #include <f2fs_fs.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,6 +19,12 @@
 #endif
 #include <time.h>
 #include <sys/stat.h>
+#ifdef HAVE_LINUX_LOOP_H
+#include <linux/loop.h>
+#ifdef HAVE_LINUX_MAJOR_H
+#include <linux/major.h>
+#endif
+#endif
 #ifdef HAVE_SYS_IOCTL_H
 #include <sys/ioctl.h>
 #endif
@@ -115,31 +118,40 @@ static uint16_t *wchar_to_utf16(uint16_t *output, wchar_t wc, size_t outsize)
 	return output + 2;
 }
 
-int utf8_to_utf16(uint16_t *output, const char *input, size_t outsize,
+int utf8_to_utf16(char *output, const char *input, size_t outsize,
 		size_t insize)
 {
 	const char *inp = input;
-	uint16_t *outp = output;
+	uint16_t *outp;
 	wchar_t wc;
+	uint16_t *volume_name = calloc(sizeof(uint16_t), MAX_VOLUME_NAME);
+
+	if (!volume_name)
+		return -ENOMEM;
+
+	outp = volume_name;
 
 	while ((size_t)(inp - input) < insize && *inp) {
 		inp = utf8_to_wchar(inp, &wc, insize - (inp - input));
 		if (inp == NULL) {
 			DBG(0, "illegal UTF-8 sequence\n");
+			free(volume_name);
 			return -EILSEQ;
 		}
-		outp = wchar_to_utf16(outp, wc, outsize - (outp - output));
+		outp = wchar_to_utf16(outp, wc, outsize - (outp - volume_name));
 		if (outp == NULL) {
 			DBG(0, "name is too long\n");
+			free(volume_name);
 			return -ENAMETOOLONG;
 		}
 	}
 	*outp = cpu_to_le16(0);
+	memcpy(output, volume_name, sizeof(uint16_t) * MAX_VOLUME_NAME);
+	free(volume_name);
 	return 0;
 }
 
-static const uint16_t *utf16_to_wchar(const uint16_t *input, wchar_t *wc,
-		size_t insize)
+static uint16_t *utf16_to_wchar(uint16_t *input, wchar_t *wc, size_t insize)
 {
 	if ((le16_to_cpu(input[0]) & 0xfc00) == 0xd800) {
 		if (insize < 2 || (le16_to_cpu(input[1]) & 0xfc00) != 0xdc00)
@@ -201,26 +213,36 @@ static char *wchar_to_utf8(char *output, wchar_t wc, size_t outsize)
 	return output;
 }
 
-int utf16_to_utf8(char *output, const uint16_t *input, size_t outsize,
+int utf16_to_utf8(char *output, const char *input, size_t outsize,
 		size_t insize)
 {
-	const uint16_t *inp = input;
 	char *outp = output;
 	wchar_t wc;
+	uint16_t *inp;
+	uint16_t *volume_name = calloc(sizeof(uint16_t), MAX_VOLUME_NAME);
 
-	while ((size_t)(inp - input) < insize && le16_to_cpu(*inp)) {
-		inp = utf16_to_wchar(inp, &wc, insize - (inp - input));
+	if (!volume_name)
+		return -ENOMEM;
+
+	memcpy(volume_name, input, sizeof(uint16_t) * MAX_VOLUME_NAME);
+	inp = volume_name;
+
+	while ((size_t)(inp - volume_name) < insize && le16_to_cpu(*inp)) {
+		inp = utf16_to_wchar(inp, &wc, insize - (inp - volume_name));
 		if (inp == NULL) {
 			DBG(0, "illegal UTF-16 sequence\n");
+			free(volume_name);
 			return -EILSEQ;
 		}
 		outp = wchar_to_utf8(outp, wc, outsize - (outp - output));
 		if (outp == NULL) {
 			DBG(0, "name is too long\n");
+			free(volume_name);
 			return -ENAMETOOLONG;
 		}
 	}
 	*outp = '\0';
+	free(volume_name);
 	return 0;
 }
 
@@ -478,8 +500,8 @@ f2fs_hash_t f2fs_dentry_hash(int encoding, int casefolded,
 
 	if (len && casefolded) {
 		buff = malloc(sizeof(char) * PATH_MAX);
-		if (!buff)
-			return -ENOMEM;
+		ASSERT(buff);
+
 		dlen = table->ops->casefold(table, name, len, buff, PATH_MAX);
 		if (dlen < 0) {
 			free(buff);
@@ -555,7 +577,7 @@ int f2fs_crc_valid(uint32_t blk_crc, void *buf, int len)
 __u32 f2fs_inode_chksum(struct f2fs_node *node)
 {
 	struct f2fs_inode *ri = &node->i;
-	__le32 ino = node->footer.ino;
+	__le32 ino = F2FS_NODE_FOOTER(node)->ino;
 	__le32 gen = ri->i_generation;
 	__u32 chksum, chksum_seed;
 	__u32 dummy_cs = 0;
@@ -590,7 +612,7 @@ __u32 f2fs_checkpoint_chksum(struct f2fs_checkpoint *cp)
 
 int write_inode(struct f2fs_node *inode, u64 blkaddr)
 {
-	if (c.feature & cpu_to_le32(F2FS_FEATURE_INODE_CHKSUM))
+	if (c.feature & F2FS_FEATURE_INODE_CHKSUM)
 		inode->i.i_inode_checksum =
 			cpu_to_le32(f2fs_inode_chksum(inode));
 	return dev_write_block(inode, blkaddr);
@@ -670,6 +692,8 @@ void f2fs_init_configuration(void)
 
 	memset(&c, 0, sizeof(struct f2fs_configuration));
 	c.ndevs = 1;
+	c.blksize = 1 << DEFAULT_BLKSIZE_BITS;
+	c.blksize_bits = DEFAULT_BLKSIZE_BITS;
 	c.sectors_per_blk = DEFAULT_SECTORS_PER_BLOCK;
 	c.blks_per_seg = DEFAULT_BLOCKS_PER_SEGMENT;
 	c.wanted_total_sectors = -1;
@@ -738,7 +762,7 @@ int f2fs_dev_is_umounted(char *path)
 #ifdef _WIN32
 	return 0;
 #else
-	struct stat *st_buf;
+	struct stat st_buf;
 	int is_rootdev = 0;
 	int ret = 0;
 	char *rootdev_name = get_rootdev();
@@ -789,32 +813,87 @@ int f2fs_dev_is_umounted(char *path)
 	 * If f2fs is umounted with -l, the process can still use
 	 * the file system. In this case, we should not format.
 	 */
-	st_buf = malloc(sizeof(struct stat));
-	ASSERT(st_buf);
+	if (stat(path, &st_buf)) {
+		/* sparse file will be created after this. */
+		if (c.sparse_mode)
+			return 0;
+		MSG(0, "Info: stat failed errno:%d\n", errno);
+		return -1;
+	}
 
-	if (stat(path, st_buf) == 0 && S_ISBLK(st_buf->st_mode)) {
+	if (S_ISBLK(st_buf.st_mode)) {
 		int fd = open(path, O_RDONLY | O_EXCL);
 
 		if (fd >= 0) {
 			close(fd);
 		} else if (errno == EBUSY) {
 			MSG(0, "\tError: In use by the system!\n");
-			free(st_buf);
-			return -1;
+			return -EBUSY;
 		}
+	} else if (S_ISREG(st_buf.st_mode)) {
+		/* check whether regular is backfile of loop device */
+#if defined(HAVE_LINUX_LOOP_H) && defined(HAVE_LINUX_MAJOR_H)
+		struct mntent *mnt;
+		struct stat st_loop;
+		FILE *f;
+
+		f = setmntent("/proc/mounts", "r");
+
+		while ((mnt = getmntent(f)) != NULL) {
+			struct loop_info64 loopinfo = {0, };
+			int loop_fd, err;
+
+			if (mnt->mnt_fsname[0] != '/')
+				continue;
+			if (stat(mnt->mnt_fsname, &st_loop) != 0)
+				continue;
+			if (!S_ISBLK(st_loop.st_mode))
+				continue;
+			if (major(st_loop.st_rdev) != LOOP_MAJOR)
+				continue;
+
+			loop_fd = open(mnt->mnt_fsname, O_RDONLY);
+			if (loop_fd < 0) {
+				/* non-root users have no permission */
+				if (errno == EPERM || errno == EACCES) {
+					MSG(0, "Info: open %s failed errno:%d - be careful to overwrite a mounted loopback file.\n",
+							mnt->mnt_fsname, errno);
+					return 0;
+				}
+				MSG(0, "Info: open %s failed errno:%d\n",
+							mnt->mnt_fsname, errno);
+				return -errno;
+			}
+
+			err = ioctl(loop_fd, LOOP_GET_STATUS64, &loopinfo);
+			close(loop_fd);
+			if (err < 0) {
+				MSG(0, "\tError: ioctl LOOP_GET_STATUS64 failed errno:%d!\n",
+					errno);
+				return -errno;
+			}
+
+			if (st_buf.st_dev == loopinfo.lo_device &&
+				st_buf.st_ino == loopinfo.lo_inode) {
+				MSG(0, "\tError: In use by loop device!\n");
+				return -EBUSY;
+			}
+		}
+#endif
 	}
-	free(st_buf);
 	return ret;
 #endif
 }
 
 int f2fs_devs_are_umounted(void)
 {
-	int i;
+	int ret, i;
 
-	for (i = 0; i < c.ndevs; i++)
-		if (f2fs_dev_is_umounted((char *)c.devices[i].path))
-			return -1;
+	for (i = 0; i < c.ndevs; i++) {
+		ret = f2fs_dev_is_umounted((char *)c.devices[i].path);
+		if (ret)
+			return ret;
+	}
 	return 0;
 }
 
@@ -901,6 +980,7 @@ int get_device_info(int i)
 	unsigned char model_inq[6] = {MODELINQUIRY};
 #endif
 	struct device_info *dev = c.devices + i;
+	int flags = O_RDWR;
 
 	if (c.sparse_mode) {
 		fd = open(dev->path, O_RDWR | O_CREAT | O_BINARY, 0644);
@@ -913,23 +993,36 @@ int get_device_info(int i)
 		}
 	}
 
-	stat_buf = malloc(sizeof(struct stat));
+	stat_buf = calloc(1, sizeof(struct stat));
 	ASSERT(stat_buf);
 
-	if (!c.sparse_mode) {
-		if (stat(dev->path, stat_buf) < 0 ) {
-			MSG(0, "\tError: Failed to get the device stat!\n");
+	if (stat(dev->path, stat_buf) < 0) {
+		MSG(0, "\tError: Failed to get the device stat!\n");
+		free(stat_buf);
+		return -1;
+	}
+
+#ifdef __linux__
+	if (S_ISBLK(stat_buf->st_mode)) {
+		if (f2fs_get_zoned_model(i) < 0) {
 			free(stat_buf);
 			return -1;
 		}
+	}
+#endif
+
+	if (!c.sparse_mode) {
+		if (dev->zoned_model == F2FS_ZONED_HM && c.func == FSCK)
+			flags |= O_DSYNC;
 
 		if (S_ISBLK(stat_buf->st_mode) &&
 				!c.force && c.func != DUMP && !c.dry_run) {
-			fd = open(dev->path, O_RDWR | O_EXCL);
+			flags |= O_EXCL;
+			fd = open(dev->path, flags);
 			if (fd < 0)
 				fd = open_check_fs(dev->path, O_EXCL);
 		} else {
-			fd = open(dev->path, O_RDWR);
+			fd = open(dev->path, flags);
 			if (fd < 0)
 				fd = open_check_fs(dev->path, 0);
 		}
@@ -942,7 +1035,7 @@ int get_device_info(int i)
 
 	dev->fd = fd;
 
-	if (c.sparse_mode) {
+	if (c.sparse_mode && i == 0) {
 		if (f2fs_init_sparse_file()) {
 			free(stat_buf);
 			return -1;
@@ -1029,13 +1122,6 @@ int get_device_info(int i)
 	}
 
 #ifdef __linux__
-	if (S_ISBLK(stat_buf->st_mode)) {
-		if (f2fs_get_zoned_model(i) < 0) {
-			free(stat_buf);
-			return -1;
-		}
-	}
-
 	if (dev->zoned_model != F2FS_ZONED_NONE) {
 
 		/* Get the number of blocks per zones */
@@ -1066,8 +1152,27 @@ int get_device_info(int i)
 				dev->nr_rnd_zones);
 		MSG(0, "      %zu blocks per zone\n",
 				dev->zone_blocks);
+
+		if (c.conf_reserved_sections) {
+			if (c.conf_reserved_sections < MIN_RSVD_SECS) {
+				MSG(0, "      Too small sections are reserved(%u secs)\n",
+				    c.conf_reserved_sections);
+				c.conf_reserved_sections = MIN_RSVD_SECS;
+				MSG(0, "      It is operated as a minimum reserved sections(%u secs)\n",
+				    c.conf_reserved_sections);
+			} else {
+				MSG(0, "      %u sections are reserved\n",
+				c.conf_reserved_sections);
+			}
+			if (!c.overprovision) {
+				c.overprovision = CONFIG_RSVD_DEFAULT_OP_RATIO;
+				MSG(0, "      Overprovision ratio is set to default(%.1lf%%)\n",
+				    c.overprovision);
+			}
+		}
 	}
 #endif
+
 	/* adjust wanted_total_sectors */
 	if (c.wanted_total_sectors != -1) {
 		MSG(0, "Info: wanted sectors = %"PRIu64" (in %"PRIu64" bytes)\n",
@@ -1177,7 +1282,7 @@ int get_device_info(int i)
 	c.sectors_per_blk = F2FS_BLKSIZE / c.sector_size;
 	c.total_sectors += dev->total_sectors;
 
-	if (c.sparse_mode && f2fs_init_sparse_file())
+	if (c.sparse_mode && i==0 && f2fs_init_sparse_file())
 		return -1;
 	return 0;
 }
@@ -1284,15 +1389,15 @@ unsigned int calc_extra_isize(void)
 {
 	unsigned int size = offsetof(struct f2fs_inode, i_projid);
 
-	if (c.feature & cpu_to_le32(F2FS_FEATURE_FLEXIBLE_INLINE_XATTR))
+	if (c.feature & F2FS_FEATURE_FLEXIBLE_INLINE_XATTR)
 		size = offsetof(struct f2fs_inode, i_projid);
-	if (c.feature & cpu_to_le32(F2FS_FEATURE_PRJQUOTA))
+	if (c.feature & F2FS_FEATURE_PRJQUOTA)
 		size = offsetof(struct f2fs_inode, i_inode_checksum);
-	if (c.feature & cpu_to_le32(F2FS_FEATURE_INODE_CHKSUM))
+	if (c.feature & F2FS_FEATURE_INODE_CHKSUM)
 		size = offsetof(struct f2fs_inode, i_crtime);
-	if (c.feature & cpu_to_le32(F2FS_FEATURE_INODE_CRTIME))
+	if (c.feature & F2FS_FEATURE_INODE_CRTIME)
 		size = offsetof(struct f2fs_inode, i_compr_blocks);
-	if (c.feature & cpu_to_le32(F2FS_FEATURE_COMPRESSION))
+	if (c.feature & F2FS_FEATURE_COMPRESSION)
 		size = offsetof(struct f2fs_inode, i_extra_end);
 
 	return size - F2FS_EXTRA_ISIZE_OFFSET;

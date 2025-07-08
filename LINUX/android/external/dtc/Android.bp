@@ -25,45 +25,61 @@ package {
 license {
     name: "external_dtc_license",
     visibility: [":__subpackages__"],
-    license_kinds: [
-        "SPDX-license-identifier-BSD",
-        "SPDX-license-identifier-BSD-2-Clause",
-        "SPDX-license-identifier-GPL",
-        "SPDX-license-identifier-GPL-2.0",
-        "SPDX-license-identifier-ISC",
-        "SPDX-license-identifier-LGPL",
-        "SPDX-license-identifier-LGPL-2.1",
-    ],
-    license_text: [
-        "NOTICE",
-        "README.license",
+    license_kinds: ["SPDX-license-identifier-GPL-2.0"],
+    license_text: ["GPL"],
+}
+
+license {
+    name: "external_dtc_libfdt_license",
+    visibility: [":__subpackages__"],
+    license_kinds: ["SPDX-license-identifier-BSD-2-Clause"],
+    license_text: ["BSD-2-Clause"],
+}
+
+license {
+    name: "external_dtc_tests_license",
+    visibility: [":__subpackages__"],
+    license_kinds: ["SPDX-license-identifier-LGPL-2.1+"],
+    license_text: ["LGPL"],
+}
+
+cc_defaults {
+    name: "dtc_cflags_defaults",
+    cflags: [
+        "-Wall",
+        "-Werror",
+        "-Wno-macro-redefined",
+        "-Wno-missing-field-initializers",
+        "-Wno-sign-compare",
+        "-Wno-unused-parameter",
     ],
 }
 
 cc_defaults {
     name: "dt_defaults",
+    defaults: ["dtc_cflags_defaults"],
     cflags: [
-        "-Wall",
-        "-Werror",
-        "-Wno-sign-compare",
-        "-Wno-missing-field-initializers",
-        "-Wno-unused-parameter",
-        "-DNO_YAML"
+        "-DNO_YAML",
     ],
 
+    generated_headers: ["dtc_version_gen.h"],
     shared_libs: ["libfdt"],
 
     stl: "none",
-    dist: {
-        targets: [
-            "dist_files",
-        ],
-        dir: "dtc",
+    target: {
+        host: {
+            dist: {
+                targets: [
+                    "dist_files",
+                ],
+                dir: "dtc",
+            },
+        },
     },
 }
 
-cc_binary_host {
-    name: "dtc",
+cc_defaults {
+    name: "dtc_defaults",
     defaults: ["dt_defaults"],
     srcs: [
         "checks.c",
@@ -80,6 +96,18 @@ cc_binary_host {
     ],
 }
 
+cc_binary {
+    name: "dtc_static",
+    defaults: ["dtc_defaults"],
+    static_executable: true,
+    installable: false, // test only
+}
+
+cc_binary_host {
+    name: "dtc",
+    defaults: ["dtc_defaults"],
+}
+
 cc_binary_host {
     name: "fdtget",
     defaults: ["dt_defaults"],
@@ -87,4 +115,42 @@ cc_binary_host {
         "fdtget.c",
         "util.c",
     ],
+}
+
+cc_binary_host {
+    name: "fdtoverlay",
+    defaults: ["dt_defaults"],
+    srcs: [
+        "fdtoverlay.c",
+        "util.c",
+    ],
+}
+
+cc_binary_host {
+    name: "fdtdump",
+    defaults: ["dt_defaults"],
+    srcs: [
+        "fdtdump.c",
+        "util.c",
+    ],
+}
+
+sh_binary_host {
+    name: "dtdiff",
+    src: "dtdiff",
+    required: ["dtc"],
+}
+
+genrule {
+    name: "dtc_version_gen.h",
+    out: ["version_gen.h"],
+    srcs: ["version_gen.h.in"],
+    tool_files: [
+        "METADATA",
+        "METADATA_version.sed",
+    ],
+    cmd: "version=$$(" +
+        "sed -f $(location METADATA_version.sed) -n $(location METADATA)" +
+        ")-Android-build;" +
+        "sed s/@VCS_TAG@/$${version}/ $(in) > $(out)",
 }

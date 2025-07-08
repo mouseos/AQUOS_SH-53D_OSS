@@ -25,11 +25,15 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/tc.h>
+#include "nl-default.h"
+
+#include <sys/stat.h>
+
 #include <netlink/netlink.h>
 #include <netlink/utils.h>
 #include <netlink/route/pktloc.h>
+
+#include "nl-route.h"
 
 #include "pktloc_syntax.h"
 #include "pktloc_grammar.h"
@@ -242,7 +246,7 @@ void rtnl_pktloc_foreach(void (*cb)(struct rtnl_pktloc *, void *), void *arg)
 			cb(loc, arg);
 }
 
-static int __init pktloc_init(void)
+static int _nl_init pktloc_init(void)
 {
 	int i;
 

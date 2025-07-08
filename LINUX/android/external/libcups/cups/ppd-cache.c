@@ -78,8 +78,11 @@ _cupsConvertOptions(
   int		num_finishings = 0,	/* Number of finishing values */
 		finishings[10];		/* Finishing enum values */
   ppd_choice_t	*choice;		/* Marked choice */
-  int           finishings_copies = copies;
+  int           finishings_copies = copies,
                                         /* Number of copies for finishings */
+                job_pages = 0,		/* job-pages value */
+		number_up = 1;		/* number-up value */
+  const char	*value;			/* Option value */
 
 
  /*
@@ -365,6 +368,28 @@ _cupsConvertOptions(
   * Map finishing options...
   */
 
+  if (copies != finishings_copies)
+  {
+    // Figure out the proper job-pages-per-set value...
+    if ((value = cupsGetOption("job-pages", num_options, options)) == NULL)
+      value = cupsGetOption("com.apple.print.PrintSettings.PMTotalBeginPages..n.", num_options, options);
+
+    if (value)
+      job_pages = atoi(value);
+
+    // Adjust for number-up
+    if ((value = cupsGetOption("number-up", num_options, options)) != NULL)
+      number_up = atoi(value);
+
+    job_pages = (job_pages + number_up - 1) / number_up;
+
+    // When duplex printing, raster data will include an extra (blank) page to
+    // make the total number of pages even.  Make sure this is reflected in the
+    // page count...
+    if ((job_pages & 1) && (keyword = cupsGetOption("sides", num_options, options)) != NULL && strcmp(keyword, "one-sided"))
+      job_pages ++;
+  }
+
   if ((finishing_template = cupsGetOption("cupsFinishingTemplate", num_options, options)) == NULL)
     finishing_template = cupsGetOption("finishing-template", num_options, options);
 
@@ -376,13 +401,13 @@ _cupsConvertOptions(
     ippAddCollection(request, IPP_TAG_JOB, "finishings-col", fin_col);
     ippDelete(fin_col);
 
-    if (copies != finishings_copies && (keyword = cupsGetOption("job-impressions", num_options, options)) != NULL)
+    if (copies != finishings_copies && job_pages > 0)
     {
      /*
       * Send job-pages-per-set attribute to apply finishings correctly...
       */
 
-      ippAddInteger(request, IPP_TAG_JOB, IPP_TAG_INTEGER, "job-pages-per-set", atoi(keyword) / finishings_copies);
+      ippAddInteger(request, IPP_TAG_JOB, IPP_TAG_INTEGER, "job-pages-per-set", job_pages);
     }
   }
   else
@@ -392,13 +417,13 @@ _cupsConvertOptions(
     {
       ippAddIntegers(request, IPP_TAG_JOB, IPP_TAG_ENUM, "finishings", num_finishings, finishings);
 
-      if (copies != finishings_copies && (keyword = cupsGetOption("job-impressions", num_options, options)) != NULL)
+      if (copies != finishings_copies && job_pages > 0)
       {
        /*
 	* Send job-pages-per-set attribute to apply finishings correctly...
 	*/
 
-	ippAddInteger(request, IPP_TAG_JOB, IPP_TAG_INTEGER, "job-pages-per-set", atoi(keyword) / finishings_copies);
+	ippAddInteger(request, IPP_TAG_JOB, IPP_TAG_INTEGER, "job-pages-per-set", job_pages);
       }
     }
   }
@@ -3228,7 +3253,7 @@ _ppdCreateFromIPP(char   *buffer,	/* I - Filename buffer */
         cupsFilePuts(fp, "*cupsFilter2: \"application/vnd.cups-pdf application/pdf 10 -\"\n");
     }
     else
-      cupsFilePuts(fp, "*cupsManualCopies: true\n");
+      cupsFilePuts(fp, "*cupsManualCopies: True\n");
     if (is_apple)
       cupsFilePuts(fp, "*cupsFilter2: \"image/urf image/urf 100 -\"\n");
     if (is_pwg)
@@ -3620,10 +3645,12 @@ _ppdCreateFromIPP(char   *buffer,	/* I - Filename buffer */
   if ((attr = ippFindAttribute(ippGetCollection(defattr, 0), "media-source", IPP_TAG_ZERO)) != NULL)
     pwg_ppdize_name(ippGetString(attr, 0, NULL), ppdname, sizeof(ppdname));
   else
-    strlcpy(ppdname, "Unknown", sizeof(ppdname));
+    ppdname[0] = '\0';
 
   if ((attr = ippFindAttribute(response, "media-source-supported", IPP_TAG_ZERO)) != NULL && (count = ippGetCount(attr)) > 1)
   {
+    int have_default = ppdname[0] != '\0';
+					/* Do we have a default InputSlot? */
     static const char * const sources[] =
     {					/* Standard "media-source" strings */
       "auto",
@@ -3678,21 +3705,31 @@ _ppdCreateFromIPP(char   *buffer,	/* I - Filename buffer */
       "roll-10"
     };
 
-    cupsFilePrintf(fp, "*OpenUI *InputSlot: PickOne\n"
-                       "*OrderDependency: 10 AnySetup *InputSlot\n"
-                       "*DefaultInputSlot: %s\n", ppdname);
-    for (i = 0, count = ippGetCount(attr); i < count; i ++)
+    cupsFilePuts(fp, "*OpenUI *InputSlot: PickOne\n"
+                     "*OrderDependency: 10 AnySetup *InputSlot\n");
+    if (have_default)
+      cupsFilePrintf(fp, "*DefaultInputSlot: %s\n", ppdname);
+
+    for (i = 0; i < count; i ++)
     {
       keyword = ippGetString(attr, i, NULL);
 
       pwg_ppdize_name(keyword, ppdname, sizeof(ppdname));
 
+      if (i == 0 && !have_default)
+	cupsFilePrintf(fp, "*DefaultInputSlot: %s\n", ppdname);
+
       for (j = 0; j < (int)(sizeof(sources) / sizeof(sources[0])); j ++)
         if (!strcmp(sources[j], keyword))
 	{
 	  snprintf(msgid, sizeof(msgid), "media-source.%s", keyword);
+
+	  if ((msgstr = _cupsLangString(lang, msgid)) == msgid || !strcmp(msgid, msgstr))
+	    if ((msgstr = _cupsMessageLookup(strings, msgid)) == msgid)
+	      msgstr = keyword;
+
 	  cupsFilePrintf(fp, "*InputSlot %s: \"<</MediaPosition %d>>setpagedevice\"\n", ppdname, j);
-	  cupsFilePrintf(fp, "*%s.InputSlot %s/%s: \"\"\n", lang->language, ppdname, _cupsLangString(lang, msgid));
+	  cupsFilePrintf(fp, "*%s.InputSlot %s/%s: \"\"\n", lang->language, ppdname, msgstr);
 	  break;
 	}
     }
@@ -3744,6 +3781,8 @@ _ppdCreateFromIPP(char   *buffer,	/* I - Filename buffer */
     int wrote_color = 0;
     const char *default_color = NULL;	/* Default */
 
+    cupsFilePrintf(fp, "*%% ColorModel from %s\n", ippGetName(attr));
+
     for (i = 0, count = ippGetCount(attr); i < count; i ++)
     {
       keyword = ippGetString(attr, i, NULL);
@@ -3790,6 +3829,11 @@ _ppdCreateFromIPP(char   *buffer,	/* I - Filename buffer */
 	PRINTF_COLOROPTION("RGB", _("Color"), CUPS_CSPACE_SRGB, 8)
 
 	default_color = "RGB";
+
+        // Apparently some printers only advertise color support, so make sure
+        // we also do grayscale for these printers...
+	if (!ippContainsString(attr, "sgray_8") && !ippContainsString(attr, "black_1") && !ippContainsString(attr, "black_8") && !ippContainsString(attr, "W8") && !ippContainsString(attr, "W8-16"))
+	  PRINTF_COLOROPTION("Gray", _("GrayScale"), CUPS_CSPACE_SW, 8)
       }
       else if (!strcasecmp(keyword, "adobe-rgb_16") || !strcmp(keyword, "ADOBERGB48") || !strcmp(keyword, "ADOBERGB24-48"))
       {
@@ -3924,7 +3968,7 @@ _ppdCreateFromIPP(char   *buffer,	/* I - Filename buffer */
   else
     strlcpy(ppdname, "Unknown", sizeof(ppdname));
 
-  if ((attr = ippFindAttribute(response, "output-bin-supported", IPP_TAG_ZERO)) != NULL && (count = ippGetCount(attr)) > 1)
+  if ((attr = ippFindAttribute(response, "output-bin-supported", IPP_TAG_ZERO)) != NULL && (count = ippGetCount(attr)) > 0)
   {
     ipp_attribute_t	*trays = ippFindAttribute(response, "printer-output-tray", IPP_TAG_STRING);
 					/* printer-output-tray attribute, if any */
@@ -5140,6 +5184,8 @@ pwg_unppdize_name(const char *ppd,	/* I - PPD keyword */
 {
   char	*ptr,				/* Pointer into name buffer */
 	*end;				/* End of name buffer */
+  int   nodash = 1;                     /* Next char in IPP name cannot be a
+                                           dash (first char or after a dash) */
 
 
   if (_cups_islower(*ppd))
@@ -5151,7 +5197,9 @@ pwg_unppdize_name(const char *ppd,	/* I - PPD keyword */
     const char *ppdptr;			/* Pointer into PPD keyword */
 
     for (ppdptr = ppd + 1; *ppdptr; ppdptr ++)
-      if (_cups_isupper(*ppdptr) || strchr(dashchars, *ppdptr))
+      if (_cups_isupper(*ppdptr) || strchr(dashchars, *ppdptr) ||
+	  (*ppdptr == '-' && *(ppdptr - 1) == '-') ||
+	  (*ppdptr == '-' && *(ppdptr + 1) == '\0'))
         break;
 
     if (!*ppdptr)
@@ -5163,19 +5211,44 @@ pwg_unppdize_name(const char *ppd,	/* I - PPD keyword */
 
   for (ptr = name, end = name + namesize - 1; *ppd && ptr < end; ppd ++)
   {
-    if (_cups_isalnum(*ppd) || *ppd == '-')
+    if (_cups_isalnum(*ppd))
+    {
       *ptr++ = (char)tolower(*ppd & 255);
-    else if (strchr(dashchars, *ppd))
-      *ptr++ = '-';
+      nodash = 0;
+    }
+    else if (*ppd == '-' || strchr(dashchars, *ppd))
+    {
+      if (nodash == 0)
+      {
+	*ptr++ = '-';
+	nodash = 1;
+      }
+    }
     else
+    {
       *ptr++ = *ppd;
+      nodash = 0;
+    }
 
-    if (!_cups_isupper(*ppd) && _cups_isalnum(*ppd) &&
-	_cups_isupper(ppd[1]) && ptr < end)
-      *ptr++ = '-';
-    else if (!isdigit(*ppd & 255) && isdigit(ppd[1] & 255))
-      *ptr++ = '-';
+    if (nodash == 0)
+    {
+      if (!_cups_isupper(*ppd) && _cups_isalnum(*ppd) &&
+	  _cups_isupper(ppd[1]) && ptr < end)
+      {
+	*ptr++ = '-';
+	nodash = 1;
+      }
+      else if (!isdigit(*ppd & 255) && isdigit(ppd[1] & 255))
+      {
+	*ptr++ = '-';
+	nodash = 1;
+      }
+    }
   }
+
+  /* Remove trailing dashes */
+  while (ptr > name && *(ptr - 1) == '-')
+    ptr --;
 
   *ptr = '\0';
 }

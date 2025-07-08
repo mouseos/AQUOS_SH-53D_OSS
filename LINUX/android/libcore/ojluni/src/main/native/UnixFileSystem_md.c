@@ -41,6 +41,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <dirent.h>
+#include <stdbool.h>
 
 #include "jni.h"
 #include "jni_util.h"
@@ -99,18 +100,22 @@ Java_java_io_UnixFileSystem_initIDs(JNIEnv *env, jclass cls)
 
 // Android-changed: hidden to avoid conflict with libm (b/135018555)
 __attribute__((visibility("hidden")))
-extern int canonicalize(char *path, const char *out, int len);
+extern int canonicalize(char *path, const char *out, int len,
+        // Android-added: Remove parent directory /.. at the rootfs. http://b/312399441
+        bool isAtLeastTargetSdk35);
 
 JNIEXPORT jstring JNICALL
 Java_java_io_UnixFileSystem_canonicalize0(JNIEnv *env, jobject this,
-                                          jstring pathname)
+                                          jstring pathname,
+        // Android-added: Remove parent directory /.. at the rootfs. http://b/312399441
+                                          jboolean isAtLeastTargetSdk35)
 {
     jstring rv = NULL;
 
     WITH_PLATFORM_STRING(env, pathname, path) {
         char canonicalPath[PATH_MAX];
         if (canonicalize((char *)path,
-                         canonicalPath, PATH_MAX) < 0) {
+                         canonicalPath, PATH_MAX, isAtLeastTargetSdk35) < 0) {
             JNU_ThrowIOExceptionWithLastError(env, "Bad pathname");
         } else {
 #ifdef MACOSX
@@ -554,7 +559,7 @@ Java_java_io_UnixFileSystem_getNameMax0(JNIEnv *env, jobject this,
 
 static JNINativeMethod gMethods[] = {
     NATIVE_METHOD(UnixFileSystem, initIDs, "()V"),
-    NATIVE_METHOD(UnixFileSystem, canonicalize0, "(Ljava/lang/String;)Ljava/lang/String;"),
+    NATIVE_METHOD(UnixFileSystem, canonicalize0, "(Ljava/lang/String;Z)Ljava/lang/String;"),
     NATIVE_METHOD(UnixFileSystem, getBooleanAttributes0, "(Ljava/lang/String;)I"),
     NATIVE_METHOD(UnixFileSystem, getNameMax0, "(Ljava/lang/String;)J"),
     NATIVE_METHOD(UnixFileSystem, setPermission0, "(Ljava/io/File;IZZ)Z"),

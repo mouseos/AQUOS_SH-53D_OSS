@@ -16,6 +16,7 @@ cc_binary {
     name: "e2fsdroid",
     host_supported: true,
     recovery_available: true,
+    vendor_available: true,
     defaults: ["e2fsprogs-defaults"],
 
     srcs: [
@@ -41,6 +42,7 @@ cc_binary {
                 "libcrypto",
                 "liblog",
             ],
+            stl: "libc++_static",
         },
         android: {
             static_libs: [
@@ -57,7 +59,6 @@ cc_binary {
             ],
         },
     },
-    stl: "libc++_static",
 }
 
 //##########################################################################

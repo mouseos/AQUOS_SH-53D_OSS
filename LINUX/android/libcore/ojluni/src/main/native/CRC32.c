@@ -32,7 +32,7 @@
 #include <zlib.h>
 
 JNIEXPORT jint JNICALL
-Java_java_util_zip_CRC32_update(JNIEnv *env, jclass cls, jint crc, jint b)
+Java_java_util_zip_CRC32_update(jint crc, jint b)
 {
     Bytef buf[1];
 

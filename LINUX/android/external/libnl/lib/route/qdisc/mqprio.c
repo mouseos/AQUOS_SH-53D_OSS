@@ -3,15 +3,29 @@
  * Copyright (c) 2018 Volodymyr Bendiuga <volodymyr.bendiuga@westermo.se>
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/tc.h>
+#include "nl-default.h"
+
 #include <netlink/netlink.h>
 #include <netlink/utils.h>
-#include <netlink-private/route/tc-api.h>
 #include <netlink/route/qdisc.h>
 #include <netlink/route/qdisc/mqprio.h>
 
+#include "tc-api.h"
+
 /** @cond SKIP */
+struct rtnl_mqprio {
+	uint8_t qm_num_tc;
+	uint8_t qm_prio_map[TC_QOPT_BITMASK + 1];
+	uint8_t qm_hw;
+	uint16_t qm_count[TC_QOPT_MAX_QUEUE];
+	uint16_t qm_offset[TC_QOPT_MAX_QUEUE];
+	uint16_t qm_mode;
+	uint16_t qm_shaper;
+	uint64_t qm_min_rate[TC_QOPT_MAX_QUEUE];
+	uint64_t qm_max_rate[TC_QOPT_MAX_QUEUE];
+	uint32_t qm_mask;
+};
+
 #define SCH_MQPRIO_ATTR_NUMTC           (1 << 0)
 #define SCH_MQPRIO_ATTR_PRIOMAP         (1 << 1)
 #define SCH_MQPRIO_ATTR_HW              (1 << 2)
@@ -591,12 +605,12 @@ static struct rtnl_tc_ops mqprio_ops = {
 	.to_msg_fill            = mqprio_msg_fill,
 };
 
-static void __init mqprio_init(void)
+static void _nl_init mqprio_init(void)
 {
 	rtnl_tc_register(&mqprio_ops);
 }
 
-static void __exit mqprio_exit(void)
+static void _nl_exit mqprio_exit(void)
 {
 	rtnl_tc_unregister(&mqprio_ops);
 }

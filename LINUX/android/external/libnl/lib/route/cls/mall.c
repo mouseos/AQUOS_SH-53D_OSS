@@ -10,16 +10,24 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/tc.h>
+#include "nl-default.h"
+
 #include <netlink/netlink.h>
 #include <netlink/attr.h>
 #include <netlink/utils.h>
-#include <netlink-private/route/tc-api.h>
 #include <netlink/route/classifier.h>
 #include <netlink/route/cls/matchall.h>
 #include <netlink/route/action.h>
 
+#include "tc-api.h"
+#include "nl-aux-route/nl-route.h"
+
+struct rtnl_mall {
+	uint32_t m_classid;
+	uint32_t m_flags;
+	struct rtnl_act *m_act;
+	int m_mask;
+};
 
 #define MALL_ATTR_CLASSID 0x01
 #define MALL_ATTR_FLAGS   0x02
@@ -100,12 +108,10 @@ int rtnl_mall_append_action(struct rtnl_cls *cls, struct rtnl_act *act)
 	if (!(mall = rtnl_tc_data(TC_CAST(cls))))
 		return -NLE_NOMEM;
 
-	mall->m_mask |= MALL_ATTR_ACTION;
-	err = rtnl_act_append(&mall->m_act, act);
-	if (err < 0)
-	        return err;
+	if ((err = _rtnl_act_append_get(&mall->m_act, act)) < 0)
+		return err;
 
-	rtnl_act_get(act);
+	mall->m_mask |= MALL_ATTR_ACTION;
 	return 0;
 }
 
@@ -238,7 +244,7 @@ static int mall_clone(void *_dst, void *_src)
 			if (!new)
 				return -NLE_NOMEM;
 
-			err = rtnl_act_append(&dst->m_act, new);
+			err = _rtnl_act_append_take(&dst->m_act, new);
 			if (err < 0)
 				return err;
 
@@ -288,12 +294,12 @@ static struct rtnl_tc_ops mall_ops = {
 	},
 };
 
-static void __init mall_init(void)
+static void _nl_init mall_init(void)
 {
 	rtnl_tc_register(&mall_ops);
 }
 
-static void __exit mall_exit(void)
+static void _nl_exit mall_exit(void)
 {
 	rtnl_tc_unregister(&mall_ops);
 }

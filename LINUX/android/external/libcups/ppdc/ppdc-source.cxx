@@ -1,7 +1,7 @@
 //
 // Source class for the CUPS PPD Compiler.
 //
-// Copyright 2007-2018 by Apple Inc.
+// Copyright 2007-2020 by Apple Inc.
 // Copyright 2002-2007 by Easy Software Products.
 //
 // Licensed under Apache License v2.0.  See the file "LICENSE" for more
@@ -537,7 +537,7 @@ ppdcSource::get_color_profile(
   for (i = 0; i < 9; i ++)
     m[i] = get_float(fp);
 
-  return (new ppdcProfile(resolution, media_type, g, d, m));
+  return (new ppdcProfile(resolution, media_type, d, g, m));
 }
 
 
@@ -1880,7 +1880,7 @@ ppdcSource::get_simple_profile(ppdcFile *fp)
   }
 
   // Return the new profile...
-  return (new ppdcProfile(resolution, media_type, g, kd, m));
+  return (new ppdcProfile(resolution, media_type, kd, g, m));
 }
 
 

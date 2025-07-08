@@ -37,6 +37,7 @@ cc_defaults {
         "-DZSTD_SUPPORT",
         "-DXATTR_SUPPORT",
         "-DXATTR_DEFAULT",
+        "-fcommon",
         "-Wno-unused-parameter",
         "-Wno-sign-compare",
         "-Wno-pointer-arith",

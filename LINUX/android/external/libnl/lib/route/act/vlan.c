@@ -10,14 +10,25 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/tc.h>
+#include "nl-default.h"
+
+#include <linux/tc_act/tc_vlan.h>
+
 #include <netlink/netlink.h>
 #include <netlink/attr.h>
 #include <netlink/utils.h>
-#include <netlink-private/route/tc-api.h>
 #include <netlink/route/act/vlan.h>
 
+#include "tc-api.h"
+
+struct rtnl_vlan
+{
+	struct tc_vlan v_parm;
+	uint16_t       v_vid;
+	uint16_t       v_proto;
+	uint8_t        v_prio;
+	uint32_t       v_flags;
+};
 
 #define VLAN_F_VID   (1 << 0)
 #define VLAN_F_PROTO (1 << 1)
@@ -399,12 +410,12 @@ static struct rtnl_tc_ops vlan_ops = {
 	},
 };
 
-static void __init vlan_init(void)
+static void _nl_init vlan_init(void)
 {
 	rtnl_tc_register(&vlan_ops);
 }
 
-static void __exit vlan_exit(void)
+static void _nl_exit vlan_exit(void)
 {
 	rtnl_tc_unregister(&vlan_ops);
 }

@@ -18,12 +18,7 @@
       ]
     },
     {
-      "name": "CtsLibcoreOjTestCases",
-      "options": [
-        {
-          "include-filter": "test.java.security.cert"
-        }
-      ]
+      "name": "CtsLibcoreOjTestCases_security_cert"
     }
   ]
 }

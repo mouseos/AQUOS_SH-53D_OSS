@@ -41,18 +41,24 @@ genrule {
 
 genrule {
     name: "emp_ematch.yacc.c",
-    cmd: "$(location bison) -y --output=$(genDir)/emp_ematch.yacc.c $(in)",
+    cmd: "M4=$(location m4) $(location bison) -y --output=$(genDir)/emp_ematch.yacc.c $(in)",
     out: ["emp_ematch.yacc.c"],
     srcs: ["emp_ematch.y"],
-    tools: ["bison"],
+    tools: [
+        "bison",
+        "m4",
+    ],
 }
 
 genrule {
     name: "emp_ematch.yacc.h",
-    cmd: "$(location bison) -y --defines=$(genDir)/emp_ematch.yacc.h --output=$(genDir)/emp_ematch.yacc.c $(in)",
+    cmd: "M4=$(location m4) $(location bison) -y --defines=$(genDir)/emp_ematch.yacc.h --output=$(genDir)/emp_ematch.yacc.c $(in)",
     out: ["emp_ematch.yacc.h"],
     srcs: ["emp_ematch.y"],
-    tools: ["bison"],
+    tools: [
+        "bison",
+        "m4",
+    ],
 }
 
 cc_binary {
@@ -93,14 +99,10 @@ cc_binary {
         "f_fw.c",
         "f_matchall.c",
         "f_route.c",
-        "f_rsvp.c",
-        "f_tcindex.c",
         "f_u32.c",
-        "q_cbq.c",
         "q_clsact.c",
         "q_codel.c",
         "q_drr.c",
-        "q_dsmark.c",
         "q_fifo.c",
         "q_fq.c",
         "q_fq_codel.c",
@@ -149,8 +151,4 @@ cc_binary {
 
     // This is a work around for b/18403920
     ldflags: ["-Wl,--no-gc-sections"],
-
-    sanitize: {
-        memtag_heap: true,
-    },
 }

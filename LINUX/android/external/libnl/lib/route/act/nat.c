@@ -10,14 +10,15 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/tc.h>
+#include "nl-default.h"
+
 #include <netlink/netlink.h>
 #include <netlink/attr.h>
 #include <netlink/utils.h>
-#include <netlink-private/route/tc-api.h>
 #include <netlink/route/act/nat.h>
 #include <netlink/route/tc.h>
+
+#include "tc-api.h"
 
 static struct nla_policy nat_policy[TCA_NAT_MAX + 1] = {
 	[TCA_NAT_PARMS] = { .minlen = sizeof(struct tc_nat) },
@@ -273,12 +274,12 @@ static struct rtnl_tc_ops nat_ops = {
 	},
 };
 
-static void __init nat_init(void)
+static void _nl_init nat_init(void)
 {
 	rtnl_tc_register(&nat_ops);
 }
 
-static void __exit nat_exit(void)
+static void _nl_exit nat_exit(void)
 {
 	rtnl_tc_unregister(&nat_ops);
 }

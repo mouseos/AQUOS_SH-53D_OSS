@@ -40,9 +40,10 @@ public class IsReachableViaLoopbackTest {
     public void testReachableViaLoopback() {
         try {
             InetAddress addr = InetAddress.getByName("localhost");
-            // Android-changed: use alternative DNS address (b/255943063#comment49).
+            // Android-changed: use alternative DNS address (b/255943063#comment49)
+            // and switch to literal address to avoid DNS lookup flakes.
             // InetAddress remoteAddr = InetAddress.getByName("bugs.openjdk.java.net");
-            InetAddress remoteAddr = InetAddress.getByName("www.google.com");
+            InetAddress remoteAddr = InetAddress.getByAddress(new byte[]{8, 8, 8, 8});
             if (!addr.isReachable(10000))
                 fail("Localhost should always be reachable");
             NetworkInterface inf = NetworkInterface.getByInetAddress(addr);

@@ -10,13 +10,129 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/utils.h>
+#include "nl-default.h"
+
 #include <netlink/netlink.h>
 #include <netlink/utils.h>
 #include <netlink/route/rtnl.h>
 #include <netlink/route/neightbl.h>
 #include <netlink/route/link.h>
+
+#include "nl-route.h"
+#include "nl-priv-dynamic-core/nl-core.h"
+#include "nl-priv-dynamic-core/cache-api.h"
+
+struct rtnl_neightbl_parms {
+	/**
+	 * Interface index of the device this parameter set is assigned
+	 * to or 0 for the default set.
+	 */
+	uint32_t ntp_ifindex;
+
+	/**
+	 * Number of references to this parameter set.
+	 */
+	uint32_t ntp_refcnt;
+
+	/**
+	 * Queue length for pending arp requests, i.e. the number of
+	 * packets which are accepted from other layers while the
+	 * neighbour address is still being resolved
+	 */
+	uint32_t ntp_queue_len;
+
+	/**
+	 * Number of requests to send to the user level ARP daemon.
+	 * Specify 0 to disable.
+	 */
+	uint32_t ntp_app_probes;
+
+	/**
+	 * Maximum number of retries for unicast solicitation.
+	 */
+	uint32_t ntp_ucast_probes;
+
+	/**
+	 * Maximum number of retries for multicast solicitation.
+	 */
+	uint32_t ntp_mcast_probes;
+
+	/**
+	 * Base value in milliseconds to ompute reachable time, see RFC2461.
+	 */
+	uint64_t ntp_base_reachable_time;
+
+	/**
+	 * Actual reachable time (read-only)
+	 */
+	uint64_t ntp_reachable_time; /* secs */
+
+	/**
+	 * The time in milliseconds between retransmitted Neighbor
+	 * Solicitation messages.
+	 */
+	uint64_t ntp_retrans_time;
+
+	/**
+	 * Interval in milliseconds to check for stale neighbour
+	 * entries.
+	 */
+	uint64_t ntp_gc_stale_time; /* secs */
+
+	/**
+	 * Delay in milliseconds for the first time probe if
+	 * the neighbour is reachable.
+	 */
+	uint64_t ntp_probe_delay; /* secs */
+
+	/**
+	 * Maximum delay in milliseconds of an answer to a neighbour
+	 * solicitation message.
+	 */
+	uint64_t ntp_anycast_delay;
+
+	/**
+	 * Minimum age in milliseconds before a neighbour entry
+	 * may be replaced.
+	 */
+	uint64_t ntp_locktime;
+
+	/**
+	 * Delay in milliseconds before answering to an ARP request
+	 * for which a proxy ARP entry exists.
+	 */
+	uint64_t ntp_proxy_delay;
+
+	/**
+	 * Queue length for the delayed proxy arp requests.
+	 */
+	uint32_t ntp_proxy_qlen;
+
+	/**
+	 * Mask of available parameter attributes
+	 */
+	uint32_t ntp_mask;
+};
+
+#define NTBLNAMSIZ 32
+
+/**
+ * Neighbour table
+ * @ingroup neightbl
+ */
+struct rtnl_neightbl {
+	NLHDR_COMMON
+
+	char nt_name[NTBLNAMSIZ];
+	uint32_t nt_family;
+	uint32_t nt_gc_thresh1;
+	uint32_t nt_gc_thresh2;
+	uint32_t nt_gc_thresh3;
+	uint64_t nt_gc_interval;
+	struct ndt_config nt_config;
+	struct rtnl_neightbl_parms nt_parms;
+	struct ndt_stats nt_stats;
+};
 
 /** @cond SKIP */
 #define NEIGHTBL_ATTR_FAMILY 0x001
@@ -56,16 +172,18 @@ static uint64_t neightbl_compare(struct nl_object *_a, struct nl_object *_b,
 	struct rtnl_neightbl *b = (struct rtnl_neightbl *)_b;
 	uint64_t diff = 0;
 
-#define NT_DIFF(ATTR, EXPR) ATTR_DIFF(attrs, NEIGHTBL_ATTR_##ATTR, a, b, EXPR)
-
-	diff |= NT_DIFF(FAMILY, a->nt_family != b->nt_family);
-	diff |= NT_DIFF(NAME, strcmp(a->nt_name, b->nt_name));
-	diff |= NT_DIFF(THRESH1, a->nt_gc_thresh1 != b->nt_gc_thresh1);
-	diff |= NT_DIFF(THRESH2, a->nt_gc_thresh2 != b->nt_gc_thresh2);
-	diff |= NT_DIFF(THRESH3, a->nt_gc_thresh3 != b->nt_gc_thresh3);
-	diff |= NT_DIFF(GC_INTERVAL, a->nt_gc_interval != b->nt_gc_interval);
-
-#undef NT_DIFF
+#define _DIFF(ATTR, EXPR) ATTR_DIFF(attrs, ATTR, a, b, EXPR)
+	diff |= _DIFF(NEIGHTBL_ATTR_FAMILY, a->nt_family != b->nt_family);
+	diff |= _DIFF(NEIGHTBL_ATTR_NAME, strcmp(a->nt_name, b->nt_name));
+	diff |= _DIFF(NEIGHTBL_ATTR_THRESH1,
+		      a->nt_gc_thresh1 != b->nt_gc_thresh1);
+	diff |= _DIFF(NEIGHTBL_ATTR_THRESH2,
+		      a->nt_gc_thresh2 != b->nt_gc_thresh2);
+	diff |= _DIFF(NEIGHTBL_ATTR_THRESH3,
+		      a->nt_gc_thresh3 != b->nt_gc_thresh3);
+	diff |= _DIFF(NEIGHTBL_ATTR_GC_INTERVAL,
+		      a->nt_gc_interval != b->nt_gc_interval);
+#undef _DIFF
 
 	if (!(a->ce_mask & NEIGHTBL_ATTR_PARMS) &&
 	    !(b->ce_mask & NEIGHTBL_ATTR_PARMS))
@@ -182,10 +300,10 @@ static int neightbl_msg_parser(struct nl_cache_ops *ops,
 		if (err < 0)
 			goto errout;
 
-#define COPY_ENTRY(name, var)                                                  \
-	if (tbp[NDTPA_##name]) {                                               \
-		p->ntp_##var = nla_get_u32(tbp[NDTPA_##name]);                 \
-		p->ntp_mask |= NEIGHTBLPARM_ATTR_##name;                       \
+#define COPY_ENTRY(name, var)                                  \
+	if (tbp[NDTPA_##name]) {                               \
+		p->ntp_##var = nla_get_u32(tbp[NDTPA_##name]); \
+		p->ntp_mask |= NEIGHTBLPARM_ATTR_##name;       \
 	}
 
 		COPY_ENTRY(IFINDEX, ifindex);
@@ -414,10 +532,9 @@ struct rtnl_neightbl *rtnl_neightbl_get(struct nl_cache *cache,
 	if (cache->c_ops != &rtnl_neightbl_ops)
 		return NULL;
 
-	nl_list_for_each_entry (nt, &cache->c_items, ce_list) {
+	nl_list_for_each_entry(nt, &cache->c_items, ce_list) {
 		if (!strcasecmp(nt->nt_name, name) &&
-		    ((!ifindex && !nt->nt_parms.ntp_ifindex) ||
-		     (ifindex && ifindex == nt->nt_parms.ntp_ifindex))) {
+		    ((unsigned)ifindex) == nt->nt_parms.ntp_ifindex) {
 			nl_object_get((struct nl_object *)nt);
 			return nt;
 		}
@@ -803,12 +920,12 @@ static struct nl_cache_ops rtnl_neightbl_ops = {
 	.co_obj_ops		= &neightbl_obj_ops,
 };
 
-static void __init neightbl_init(void)
+static void _nl_init neightbl_init(void)
 {
 	nl_cache_mngt_register(&rtnl_neightbl_ops);
 }
 
-static void __exit neightbl_exit(void)
+static void _nl_exit neightbl_exit(void)
 {
 	nl_cache_mngt_unregister(&rtnl_neightbl_ops);
 }

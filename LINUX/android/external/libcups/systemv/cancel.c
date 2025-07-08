@@ -274,7 +274,7 @@ main(int  argc,				/* I - Number of command-line arguments */
       }
       else
       {
-        sprintf(uri, "ipp://localhost/jobs/%d", job_id);
+        snprintf(uri, sizeof(uri), "ipp://localhost/jobs/%d", job_id);
 	ippAddString(request, IPP_TAG_OPERATION, IPP_TAG_URI, "job-uri", NULL,
 	             uri);
       }
@@ -311,8 +311,7 @@ main(int  argc,				/* I - Number of command-line arguments */
 	        	op == IPP_PURGE_JOBS ? "purge-jobs" : "cancel-job",
         		cupsLastErrorString());
 
-	if (response)
-	  ippDelete(response);
+          ippDelete(response);
 
 	return (1);
       }
@@ -375,8 +374,7 @@ main(int  argc,				/* I - Number of command-line arguments */
 		      op == IPP_PURGE_JOBS ? "purge-jobs" : "cancel-job",
         	      cupsLastErrorString());
 
-      if (response)
-	ippDelete(response);
+      ippDelete(response);
 
       return (1);
     }

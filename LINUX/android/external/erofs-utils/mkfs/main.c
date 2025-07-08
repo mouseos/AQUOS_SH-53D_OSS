@@ -15,19 +15,21 @@
 #include "erofs/config.h"
 #include "erofs/print.h"
 #include "erofs/cache.h"
+#include "erofs/diskbuf.h"
 #include "erofs/inode.h"
+#include "erofs/tar.h"
 #include "erofs/io.h"
 #include "erofs/compress.h"
+#include "erofs/dedupe.h"
 #include "erofs/xattr.h"
 #include "erofs/exclude.h"
 #include "erofs/block_list.h"
 #include "erofs/compress_hints.h"
 #include "erofs/blobchunk.h"
+#include "erofs/fragments.h"
+#include "erofs/rebuild.h"
 #include "../lib/liberofs_private.h"
-
-#ifdef HAVE_LIBUUID
-#include <uuid.h>
-#endif
+#include "../lib/liberofs_uuid.h"
 
 #define EROFS_SUPER_END (EROFS_SUPER_OFFSET + sizeof(struct erofs_super_block))
 
@@ -43,6 +45,7 @@ static struct option long_options[] = {
 	{"all-root", no_argument, NULL, 7},
 #ifndef NDEBUG
 	{"random-pclusterblks", no_argument, NULL, 8},
+	{"random-algorithms", no_argument, NULL, 18},
 #endif
 	{"max-extent-bytes", required_argument, NULL, 9},
 	{"compress-hints", required_argument, NULL, 10},
@@ -51,41 +54,53 @@ static struct option long_options[] = {
 	{"blobdev", required_argument, NULL, 13},
 	{"ignore-mtime", no_argument, NULL, 14},
 	{"preserve-mtime", no_argument, NULL, 15},
-#ifdef WITH_ANDROID
+	{"uid-offset", required_argument, NULL, 16},
+	{"gid-offset", required_argument, NULL, 17},
+	{"tar", optional_argument, NULL, 20},
+	{"aufs", no_argument, NULL, 21},
 	{"mount-point", required_argument, NULL, 512},
+	{"xattr-prefix", required_argument, NULL, 19},
+#ifdef WITH_ANDROID
 	{"product-out", required_argument, NULL, 513},
 	{"fs-config-file", required_argument, NULL, 514},
 	{"block-list-file", required_argument, NULL, 515},
+#endif
+	{"ovlfs-strip", optional_argument, NULL, 516},
+#ifdef HAVE_ZLIB
+	{"gzip", no_argument, NULL, 517},
 #endif
 	{0, 0, 0, 0},
 };
 
 static void print_available_compressors(FILE *f, const char *delim)
 {
-	unsigned int i = 0;
+	int i = 0;
+	bool comma = false;
 	const char *s;
 
-	while ((s = z_erofs_list_available_compressors(i)) != NULL) {
-		if (i++)
+	while ((s = z_erofs_list_available_compressors(&i)) != NULL) {
+		if (comma)
 			fputs(delim, f);
 		fputs(s, f);
+		comma = true;
 	}
 	fputc('\n', f);
 }
 
 static void usage(void)
 {
-	fputs("usage: [options] FILE DIRECTORY\n\n"
-	      "Generate erofs image from DIRECTORY to FILE, and [options] are:\n"
+	fputs("usage: [options] FILE SOURCE(s)\n"
+	      "Generate EROFS image (FILE) from DIRECTORY, TARBALL and/or EROFS images.  And [options] are:\n"
+	      " -b#                   set block size to # (# = page size by default)\n"
 	      " -d#                   set output message level to # (maximum 9)\n"
 	      " -x#                   set xattr tolerance to # (< 0, disable xattrs; default 2)\n"
-	      " -zX[,Y]               X=compressor (Y=compression level, optional)\n"
+	      " -zX[,Y][:..]          X=compressor (Y=compression level, optional)\n"
+	      "                       alternative algorithms can be separated by colons(:)\n"
 	      " -C#                   specify the size of compress physical cluster in bytes\n"
 	      " -EX[,...]             X=extended options\n"
+	      " -L volume-label       set the volume label (maximum 16)\n"
 	      " -T#                   set a fixed UNIX timestamp # to all files\n"
-#ifdef HAVE_LIBUUID
 	      " -UX                   use a given filesystem UUID\n"
-#endif
 	      " --all-root            make all files owned by root\n"
 	      " --blobdev=X           specify an extra device X to store chunked data\n"
 	      " --chunksize=#         generate chunk-based files with #-byte chunks\n"
@@ -97,17 +112,27 @@ static void usage(void)
 #endif
 	      " --force-uid=#         set all file uids to # (# = UID)\n"
 	      " --force-gid=#         set all file gids to # (# = GID)\n"
+	      " --uid-offset=#        add offset # to all file uids (# = id offset)\n"
+	      " --gid-offset=#        add offset # to all file gids (# = id offset)\n"
+#ifdef HAVE_ZLIB
+	      " --gzip                try to filter the tarball stream through gzip\n"
+#endif
 	      " --help                display this help and exit\n"
 	      " --ignore-mtime        use build time instead of strict per-file modification time\n"
 	      " --max-extent-bytes=#  set maximum decompressed extent size # in bytes\n"
 	      " --preserve-mtime      keep per-file modification time strictly\n"
+	      " --aufs                replace aufs special files with overlayfs metadata\n"
+	      " --tar=[fi]            generate an image from tarball(s)\n"
+	      " --ovlfs-strip=[01]    strip overlayfs metadata in the target image (e.g. whiteouts)\n"
 	      " --quiet               quiet execution (do not write anything to standard output.)\n"
 #ifndef NDEBUG
 	      " --random-pclusterblks randomize pclusterblks for big pcluster (debugging only)\n"
+	      " --random-algorithms   randomize per-file algorithms (debugging only)\n"
 #endif
+	      " --xattr-prefix=X      X=extra xattr name prefix\n"
+	      " --mount-point=X       X=prefix of target fs path (default: /)\n"
 #ifdef WITH_ANDROID
 	      "\nwith following android-specific options:\n"
-	      " --mount-point=X       X=prefix of target fs path (default: /)\n"
 	      " --product-out=X       X=product_out directory\n"
 	      " --fs-config-file=X    X=fs_config file\n"
 	      " --block-list-file=X   X=block_list file\n"
@@ -115,6 +140,15 @@ static void usage(void)
 	      "\nAvailable compressors are: ", stderr);
 	print_available_compressors(stderr, ", ");
 }
+
+static unsigned int pclustersize_packed, pclustersize_max;
+static struct erofs_tarfile erofstar = {
+	.global.xattrs = LIST_HEAD_INIT(erofstar.global.xattrs)
+};
+static bool tar_mode, rebuild_mode, gzip_supported;
+
+static unsigned int rebuild_src_count;
+static LIST_HEAD(rebuild_src_list);
 
 static int parse_extended_opts(const char *opts)
 {
@@ -126,12 +160,13 @@ static int parse_extended_opts(const char *opts)
 
 	value = NULL;
 	for (token = opts; *token != '\0'; token = next) {
+		bool clear = false;
 		const char *p = strchr(token, ',');
 
 		next = NULL;
-		if (p)
+		if (p) {
 			next = p + 1;
-		else {
+		} else {
 			p = token + strlen(token);
 			next = p;
 		}
@@ -149,83 +184,147 @@ static int parse_extended_opts(const char *opts)
 			vallen = 0;
 		}
 
+		if (token[0] == '^') {
+			if (keylen < 2)
+				return -EINVAL;
+			++token;
+			--keylen;
+			clear = true;
+		}
+
 		if (MATCH_EXTENTED_OPT("legacy-compress", token, keylen)) {
 			if (vallen)
 				return -EINVAL;
 			/* disable compacted indexes and 0padding */
 			cfg.c_legacy_compress = true;
-		}
-
-		if (MATCH_EXTENTED_OPT("force-inode-compact", token, keylen)) {
+		} else if (MATCH_EXTENTED_OPT("force-inode-compact", token, keylen)) {
 			if (vallen)
 				return -EINVAL;
 			cfg.c_force_inodeversion = FORCE_INODE_COMPACT;
 			cfg.c_ignore_mtime = true;
-		}
-
-		if (MATCH_EXTENTED_OPT("force-inode-extended", token, keylen)) {
+		} else if (MATCH_EXTENTED_OPT("force-inode-extended", token, keylen)) {
 			if (vallen)
 				return -EINVAL;
 			cfg.c_force_inodeversion = FORCE_INODE_EXTENDED;
-		}
-
-		if (MATCH_EXTENTED_OPT("nosbcrc", token, keylen)) {
+		} else if (MATCH_EXTENTED_OPT("nosbcrc", token, keylen)) {
 			if (vallen)
 				return -EINVAL;
-			erofs_sb_clear_sb_chksum();
-		}
-
-		if (MATCH_EXTENTED_OPT("noinline_data", token, keylen)) {
+			erofs_sb_clear_sb_chksum(&sbi);
+		} else if (MATCH_EXTENTED_OPT("noinline_data", token, keylen)) {
 			if (vallen)
 				return -EINVAL;
-			cfg.c_noinline_data = true;
-		}
-
-		if (MATCH_EXTENTED_OPT("force-inode-blockmap", token, keylen)) {
+			cfg.c_inline_data = false;
+		} else if (MATCH_EXTENTED_OPT("inline_data", token, keylen)) {
+			if (vallen)
+				return -EINVAL;
+			cfg.c_inline_data = !clear;
+		} else if (MATCH_EXTENTED_OPT("force-inode-blockmap", token, keylen)) {
 			if (vallen)
 				return -EINVAL;
 			cfg.c_force_chunkformat = FORCE_INODE_BLOCK_MAP;
-		}
-
-		if (MATCH_EXTENTED_OPT("force-chunk-indexes", token, keylen)) {
+		} else if (MATCH_EXTENTED_OPT("force-chunk-indexes", token, keylen)) {
 			if (vallen)
 				return -EINVAL;
 			cfg.c_force_chunkformat = FORCE_INODE_CHUNK_INDEXES;
-		}
-
-		if (MATCH_EXTENTED_OPT("ztailpacking", token, keylen)) {
+		} else if (MATCH_EXTENTED_OPT("ztailpacking", token, keylen)) {
 			if (vallen)
 				return -EINVAL;
-			cfg.c_ztailpacking = true;
+			cfg.c_ztailpacking = !clear;
+		} else if (MATCH_EXTENTED_OPT("all-fragments", token, keylen)) {
+			cfg.c_all_fragments = true;
+			goto handle_fragment;
+		} else if (MATCH_EXTENTED_OPT("fragments", token, keylen)) {
+			char *endptr;
+			u64 i;
+
+handle_fragment:
+			cfg.c_fragments = true;
+			if (vallen) {
+				i = strtoull(value, &endptr, 0);
+				if (endptr - value != vallen) {
+					erofs_err("invalid pcluster size for the packed file %s",
+						  next);
+					return -EINVAL;
+				}
+				pclustersize_packed = i;
+			}
+		} else if (MATCH_EXTENTED_OPT("dedupe", token, keylen)) {
+			if (vallen)
+				return -EINVAL;
+			cfg.c_dedupe = !clear;
+		} else if (MATCH_EXTENTED_OPT("xattr-name-filter", token, keylen)) {
+			if (vallen)
+				return -EINVAL;
+			cfg.c_xattr_name_filter = !clear;
+		} else {
+			erofs_err("unknown extended option %.*s",
+				  p - token, token);
+			return -EINVAL;
 		}
 	}
 	return 0;
 }
 
+static int mkfs_parse_compress_algs(char *algs)
+{
+	unsigned int i;
+	char *s;
+
+	for (s = strtok(algs, ":"), i = 0; s; s = strtok(NULL, ":"), ++i) {
+		const char *lv;
+
+		if (i >= EROFS_MAX_COMPR_CFGS - 1) {
+			erofs_err("too many algorithm types");
+			return -EINVAL;
+		}
+
+		lv = strchr(s, ',');
+		if (lv) {
+			cfg.c_compr_level[i] = atoi(lv + 1);
+			cfg.c_compr_alg[i] = strndup(s, lv - s);
+		} else {
+			cfg.c_compr_level[i] = -1;
+			cfg.c_compr_alg[i] = strdup(s);
+		}
+	}
+	return 0;
+}
+
+static void erofs_rebuild_cleanup(void)
+{
+	struct erofs_sb_info *src, *n;
+
+	list_for_each_entry_safe(src, n, &rebuild_src_list, list) {
+		list_del(&src->list);
+		erofs_put_super(src);
+		dev_close(src);
+		free(src);
+	}
+	rebuild_src_count = 0;
+}
+
 static int mkfs_parse_options_cfg(int argc, char *argv[])
 {
 	char *endptr;
-	int opt, i;
+	int opt, i, err;
 	bool quiet = false;
 
-	while ((opt = getopt_long(argc, argv, "C:E:T:U:d:x:z:",
+	while ((opt = getopt_long(argc, argv, "C:E:L:T:U:b:d:x:z:",
 				  long_options, NULL)) != -1) {
 		switch (opt) {
 		case 'z':
-			if (!optarg) {
-				cfg.c_compr_alg_master = "(default)";
-				break;
+			i = mkfs_parse_compress_algs(optarg);
+			if (i)
+				return i;
+			break;
+
+		case 'b':
+			i = atoi(optarg);
+			if (i < 512 || i > EROFS_MAX_BLOCK_SIZE) {
+				erofs_err("invalid block size %s", optarg);
+				return -EINVAL;
 			}
-			/* get specified compression level */
-			for (i = 0; optarg[i] != '\0'; ++i) {
-				if (optarg[i] == ',') {
-					cfg.c_compr_level_master =
-						atoi(optarg + i + 1);
-					optarg[i] = '\0';
-					break;
-				}
-			}
-			cfg.c_compr_alg_master = strndup(optarg, i);
+			sbi.blkszbits = ilog2(i);
 			break;
 
 		case 'd':
@@ -251,6 +350,17 @@ static int mkfs_parse_options_cfg(int argc, char *argv[])
 			if (opt)
 				return opt;
 			break;
+
+		case 'L':
+			if (optarg == NULL ||
+			    strlen(optarg) > sizeof(sbi.volume_name)) {
+				erofs_err("invalid volume label");
+				return -EINVAL;
+			}
+			strncpy(sbi.volume_name, optarg,
+				sizeof(sbi.volume_name));
+			break;
+
 		case 'T':
 			cfg.c_unix_timestamp = strtoull(optarg, &endptr, 0);
 			if (cfg.c_unix_timestamp == -1 || *endptr != '\0') {
@@ -259,14 +369,12 @@ static int mkfs_parse_options_cfg(int argc, char *argv[])
 			}
 			cfg.c_timeinherit = TIMESTAMP_FIXED;
 			break;
-#ifdef HAVE_LIBUUID
 		case 'U':
-			if (uuid_parse(optarg, sbi.uuid)) {
+			if (erofs_uuid_parse(optarg, sbi.uuid)) {
 				erofs_err("invalid UUID %s", optarg);
 				return -EINVAL;
 			}
 			break;
-#endif
 		case 2:
 			opt = erofs_parse_exclude_path(optarg, false);
 			if (opt) {
@@ -310,6 +418,9 @@ static int mkfs_parse_options_cfg(int argc, char *argv[])
 		case 8:
 			cfg.c_random_pclusterblks = true;
 			break;
+		case 18:
+			cfg.c_random_algorithms = true;
+			break;
 #endif
 		case 9:
 			cfg.c_max_decompressed_extent_bytes =
@@ -323,7 +434,6 @@ static int mkfs_parse_options_cfg(int argc, char *argv[])
 		case 10:
 			cfg.c_compress_hints_file = optarg;
 			break;
-#ifdef WITH_ANDROID
 		case 512:
 			cfg.mount_point = optarg;
 			/* all trailing '/' should be deleted */
@@ -331,6 +441,7 @@ static int mkfs_parse_options_cfg(int argc, char *argv[])
 			if (opt && optarg[opt - 1] == '/')
 				optarg[opt - 1] = '\0';
 			break;
+#ifdef WITH_ANDROID
 		case 513:
 			cfg.target_out_path = optarg;
 			break;
@@ -343,14 +454,12 @@ static int mkfs_parse_options_cfg(int argc, char *argv[])
 #endif
 		case 'C':
 			i = strtoull(optarg, &endptr, 0);
-			if (*endptr != '\0' ||
-			    i < EROFS_BLKSIZ || i % EROFS_BLKSIZ) {
+			if (*endptr != '\0') {
 				erofs_err("invalid physical clustersize %s",
 					  optarg);
 				return -EINVAL;
 			}
-			cfg.c_pclusterblks_max = i / EROFS_BLKSIZ;
-			cfg.c_pclusterblks_def = cfg.c_pclusterblks_max;
+			pclustersize_max = i;
 			break;
 		case 11:
 			i = strtol(optarg, &endptr, 0);
@@ -364,12 +473,7 @@ static int mkfs_parse_options_cfg(int argc, char *argv[])
 					  optarg);
 				return -EINVAL;
 			}
-			if (i < EROFS_BLKSIZ) {
-				erofs_err("chunksize %s must be larger than block size",
-					  optarg);
-				return -EINVAL;
-			}
-			erofs_sb_set_chunked_file();
+			erofs_sb_set_chunked_file(&sbi);
 			break;
 		case 12:
 			quiet = true;
@@ -383,6 +487,53 @@ static int mkfs_parse_options_cfg(int argc, char *argv[])
 		case 15:
 			cfg.c_ignore_mtime = false;
 			break;
+		case 16:
+			errno = 0;
+			cfg.c_uid_offset = strtoll(optarg, &endptr, 0);
+			if (errno || *endptr != '\0') {
+				erofs_err("invalid uid offset %s", optarg);
+				return -EINVAL;
+			}
+			break;
+		case 17:
+			errno = 0;
+			cfg.c_gid_offset = strtoll(optarg, &endptr, 0);
+			if (errno || *endptr != '\0') {
+				erofs_err("invalid gid offset %s", optarg);
+				return -EINVAL;
+			}
+			break;
+		case 19:
+			errno = 0;
+			opt = erofs_xattr_insert_name_prefix(optarg);
+			if (opt) {
+				erofs_err("failed to parse xattr name prefix: %s",
+					  erofs_strerror(opt));
+				return opt;
+			}
+			cfg.c_extra_ea_name_prefixes = true;
+			break;
+		case 20:
+			if (optarg && (!strcmp(optarg, "i") ||
+				!strcmp(optarg, "0") || !memcmp(optarg, "0,", 2))) {
+				erofstar.index_mode = true;
+				if (!memcmp(optarg, "0,", 2))
+					erofstar.mapfile = strdup(optarg + 2);
+			}
+			tar_mode = true;
+			break;
+		case 21:
+			erofstar.aufs = true;
+			break;
+		case 516:
+			if (!optarg || !strcmp(optarg, "1"))
+				cfg.c_ovlfs_strip = true;
+			else
+				cfg.c_ovlfs_strip = false;
+			break;
+		case 517:
+			gzip_supported = true;
+			break;
 		case 1:
 			usage();
 			exit(0);
@@ -392,7 +543,7 @@ static int mkfs_parse_options_cfg(int argc, char *argv[])
 		}
 	}
 
-	if (cfg.c_blobdev_path && cfg.c_chunkbits < LOG_BLOCK_SIZE) {
+	if (cfg.c_blobdev_path && cfg.c_chunkbits < sbi.blkszbits) {
 		erofs_err("--blobdev must be used together with --chunksize");
 		return -EINVAL;
 	}
@@ -414,58 +565,152 @@ static int mkfs_parse_options_cfg(int argc, char *argv[])
 		return -ENOMEM;
 
 	if (optind >= argc) {
-		erofs_err("missing argument: DIRECTORY");
-		return -EINVAL;
-	}
+		if (!tar_mode) {
+			erofs_err("missing argument: SOURCE(s)");
+			return -EINVAL;
+		} else {
+			int dupfd;
 
-	cfg.c_src_path = realpath(argv[optind++], NULL);
-	if (!cfg.c_src_path) {
-		erofs_err("failed to parse source directory: %s",
-			  erofs_strerror(-errno));
-		return -ENOENT;
-	}
+			dupfd = dup(STDIN_FILENO);
+			if (dupfd < 0) {
+				erofs_err("failed to duplicate STDIN_FILENO: %s",
+					  strerror(errno));
+				return -errno;
+			}
+			err = erofs_iostream_open(&erofstar.ios, dupfd, gzip_supported);
+			if (err)
+				return err;
+		}
+	} else {
+		struct stat st;
 
-	if (optind < argc) {
-		erofs_err("unexpected argument: %s\n", argv[optind]);
-		return -EINVAL;
+		cfg.c_src_path = realpath(argv[optind++], NULL);
+		if (!cfg.c_src_path) {
+			erofs_err("failed to parse source directory: %s",
+				  erofs_strerror(-errno));
+			return -ENOENT;
+		}
+
+		if (tar_mode) {
+			int fd = open(cfg.c_src_path, O_RDONLY);
+
+			if (fd < 0) {
+				erofs_err("failed to open file: %s", cfg.c_src_path);
+				return -errno;
+			}
+			err = erofs_iostream_open(&erofstar.ios, fd, gzip_supported);
+			if (err)
+				return err;
+		} else {
+			err = lstat(cfg.c_src_path, &st);
+			if (err)
+				return -errno;
+			if (S_ISDIR(st.st_mode))
+				erofs_set_fs_root(cfg.c_src_path);
+			else
+				rebuild_mode = true;
+		}
+
+		if (rebuild_mode) {
+			char *srcpath = cfg.c_src_path;
+			struct erofs_sb_info *src;
+
+			do {
+				src = calloc(1, sizeof(struct erofs_sb_info));
+				if (!src) {
+					erofs_rebuild_cleanup();
+					return -ENOMEM;
+				}
+
+				err = dev_open_ro(src, srcpath);
+				if (err) {
+					free(src);
+					erofs_rebuild_cleanup();
+					return err;
+				}
+
+				/* extra device index starts from 1 */
+				src->dev = ++rebuild_src_count;
+				list_add(&src->list, &rebuild_src_list);
+			} while (optind < argc && (srcpath = argv[optind++]));
+		} else if (optind < argc) {
+			erofs_err("unexpected argument: %s\n", argv[optind]);
+			return -EINVAL;
+		}
 	}
 	if (quiet) {
 		cfg.c_dbg_lvl = EROFS_ERR;
 		cfg.c_showprogress = false;
+	}
+
+	if (cfg.c_compr_alg[0] && erofs_blksiz(&sbi) != getpagesize())
+		erofs_warn("Please note that subpage blocksize with compression isn't yet supported in kernel. "
+			   "This compressed image will only work with bs = ps = %u bytes",
+			   erofs_blksiz(&sbi));
+
+	if (pclustersize_max) {
+		if (pclustersize_max < erofs_blksiz(&sbi) ||
+		    pclustersize_max % erofs_blksiz(&sbi)) {
+			erofs_err("invalid physical clustersize %u",
+				  pclustersize_max);
+			return -EINVAL;
+		}
+		cfg.c_pclusterblks_max = pclustersize_max >> sbi.blkszbits;
+		cfg.c_pclusterblks_def = cfg.c_pclusterblks_max;
+	}
+	if (cfg.c_chunkbits && cfg.c_chunkbits < sbi.blkszbits) {
+		erofs_err("chunksize %u must be larger than block size",
+			  1u << cfg.c_chunkbits);
+		return -EINVAL;
+	}
+
+	if (pclustersize_packed) {
+		if (pclustersize_max < erofs_blksiz(&sbi) ||
+		    pclustersize_max % erofs_blksiz(&sbi)) {
+			erofs_err("invalid pcluster size for the packed file %u",
+				  pclustersize_packed);
+			return -EINVAL;
+		}
+		cfg.c_pclusterblks_packed = pclustersize_packed >> sbi.blkszbits;
 	}
 	return 0;
 }
 
 int erofs_mkfs_update_super_block(struct erofs_buffer_head *bh,
 				  erofs_nid_t root_nid,
-				  erofs_blk_t *blocks)
+				  erofs_blk_t *blocks,
+				  erofs_nid_t packed_nid)
 {
 	struct erofs_super_block sb = {
 		.magic     = cpu_to_le32(EROFS_SUPER_MAGIC_V1),
-		.blkszbits = LOG_BLOCK_SIZE,
+		.blkszbits = sbi.blkszbits,
 		.inos   = cpu_to_le64(sbi.inos),
 		.build_time = cpu_to_le64(sbi.build_time),
 		.build_time_nsec = cpu_to_le32(sbi.build_time_nsec),
 		.blocks = 0,
-		.meta_blkaddr  = sbi.meta_blkaddr,
-		.xattr_blkaddr = sbi.xattr_blkaddr,
+		.meta_blkaddr  = cpu_to_le32(sbi.meta_blkaddr),
+		.xattr_blkaddr = cpu_to_le32(sbi.xattr_blkaddr),
+		.xattr_prefix_count = sbi.xattr_prefix_count,
+		.xattr_prefix_start = cpu_to_le32(sbi.xattr_prefix_start),
 		.feature_incompat = cpu_to_le32(sbi.feature_incompat),
 		.feature_compat = cpu_to_le32(sbi.feature_compat &
 					      ~EROFS_FEATURE_COMPAT_SB_CHKSUM),
 		.extra_devices = cpu_to_le16(sbi.extra_devices),
 		.devt_slotoff = cpu_to_le16(sbi.devt_slotoff),
 	};
-	const unsigned int sb_blksize =
-		round_up(EROFS_SUPER_END, EROFS_BLKSIZ);
+	const u32 sb_blksize = round_up(EROFS_SUPER_END, erofs_blksiz(&sbi));
 	char *buf;
+	int ret;
 
 	*blocks         = erofs_mapbh(NULL);
 	sb.blocks       = cpu_to_le32(*blocks);
 	sb.root_nid     = cpu_to_le16(root_nid);
+	sb.packed_nid    = cpu_to_le64(packed_nid);
 	memcpy(sb.uuid, sbi.uuid, sizeof(sb.uuid));
+	memcpy(sb.volume_name, sbi.volume_name, sizeof(sb.volume_name));
 
-	if (erofs_sb_has_compr_cfgs())
-		sb.u1.available_compr_algs = sbi.available_compr_algs;
+	if (erofs_sb_has_compr_cfgs(&sbi))
+		sb.u1.available_compr_algs = cpu_to_le16(sbi.available_compr_algs);
 	else
 		sb.u1.lz4_max_distance = cpu_to_le16(sbi.lz4_max_distance);
 
@@ -477,19 +722,21 @@ int erofs_mkfs_update_super_block(struct erofs_buffer_head *bh,
 	}
 	memcpy(buf + EROFS_SUPER_OFFSET, &sb, sizeof(sb));
 
-	bh->fsprivate = buf;
-	bh->op = &erofs_buf_write_bhops;
-	return 0;
+	ret = dev_write(&sbi, buf, erofs_btell(bh, false), EROFS_SUPER_END);
+	free(buf);
+	erofs_bdrop(bh, false);
+	return ret;
 }
 
 static int erofs_mkfs_superblock_csum_set(void)
 {
 	int ret;
-	u8 buf[EROFS_BLKSIZ];
+	u8 buf[EROFS_MAX_BLOCK_SIZE];
 	u32 crc;
+	unsigned int len;
 	struct erofs_super_block *sb;
 
-	ret = blk_read(0, buf, 0, 1);
+	ret = blk_read(&sbi, 0, buf, 0, erofs_blknr(&sbi, EROFS_SUPER_END) + 1);
 	if (ret) {
 		erofs_err("failed to read superblock to set checksum: %s",
 			  erofs_strerror(ret));
@@ -510,12 +757,16 @@ static int erofs_mkfs_superblock_csum_set(void)
 	/* turn on checksum feature */
 	sb->feature_compat = cpu_to_le32(le32_to_cpu(sb->feature_compat) |
 					 EROFS_FEATURE_COMPAT_SB_CHKSUM);
-	crc = erofs_crc32c(~0, (u8 *)sb, EROFS_BLKSIZ - EROFS_SUPER_OFFSET);
+	if (erofs_blksiz(&sbi) > EROFS_SUPER_OFFSET)
+		len = erofs_blksiz(&sbi) - EROFS_SUPER_OFFSET;
+	else
+		len = erofs_blksiz(&sbi);
+	crc = erofs_crc32c(~0, (u8 *)sb, len);
 
 	/* set up checksum field to erofs_super_block */
 	sb->checksum = cpu_to_le32(crc);
 
-	ret = blk_write(buf, 0, 1);
+	ret = blk_write(&sbi, buf, 0, 1);
 	if (ret) {
 		erofs_err("failed to write checksummed superblock: %s",
 			  erofs_strerror(ret));
@@ -530,16 +781,15 @@ static void erofs_mkfs_default_options(void)
 {
 	cfg.c_showprogress = true;
 	cfg.c_legacy_compress = false;
-	sbi.feature_incompat = EROFS_FEATURE_INCOMPAT_LZ4_0PADDING;
+	cfg.c_inline_data = true;
+	cfg.c_xattr_name_filter = true;
+	sbi.blkszbits = ilog2(min_t(u32, getpagesize(), EROFS_MAX_BLOCK_SIZE));
+	sbi.feature_incompat = EROFS_FEATURE_INCOMPAT_ZERO_PADDING;
 	sbi.feature_compat = EROFS_FEATURE_COMPAT_SB_CHKSUM |
 			     EROFS_FEATURE_COMPAT_MTIME;
 
 	/* generate a default uuid first */
-#ifdef HAVE_LIBUUID
-	do {
-		uuid_generate(sbi.uuid);
-	} while (uuid_is_null(sbi.uuid));
-#endif
+	erofs_uuid_generate(sbi.uuid);
 }
 
 /* https://reproducible-builds.org/specs/source-date-epoch/ for more details */
@@ -574,17 +824,111 @@ void erofs_show_progs(int argc, char *argv[])
 	if (cfg.c_dbg_lvl >= EROFS_WARN)
 		printf("%s %s\n", basename(argv[0]), cfg.c_version);
 }
+static struct erofs_inode *erofs_alloc_root_inode(void)
+{
+	struct erofs_inode *root;
+
+	root = erofs_new_inode();
+	if (IS_ERR(root))
+		return root;
+	root->i_srcpath = strdup("/");
+	root->i_mode = S_IFDIR | 0777;
+	root->i_parent = root;
+	root->i_mtime = root->sbi->build_time;
+	root->i_mtime_nsec = root->sbi->build_time_nsec;
+	erofs_init_empty_dir(root);
+	return root;
+}
+
+static int erofs_rebuild_load_trees(struct erofs_inode *root)
+{
+	struct erofs_sb_info *src;
+	unsigned int extra_devices = 0;
+	erofs_blk_t nblocks;
+	int ret, idx;
+
+	list_for_each_entry(src, &rebuild_src_list, list) {
+		ret = erofs_rebuild_load_tree(root, src);
+		if (ret) {
+			erofs_err("failed to load %s", src->devname);
+			return ret;
+		}
+		if (src->extra_devices > 1) {
+			erofs_err("%s: unsupported number of extra devices",
+				  src->devname, src->extra_devices);
+			return -EOPNOTSUPP;
+		}
+		extra_devices += src->extra_devices;
+	}
+
+	if (extra_devices && extra_devices != rebuild_src_count) {
+		erofs_err("extra_devices(%u) is mismatched with source images(%u)",
+			  extra_devices, rebuild_src_count);
+		return -EOPNOTSUPP;
+	}
+
+	ret = erofs_mkfs_init_devices(&sbi, rebuild_src_count);
+	if (ret)
+		return ret;
+
+	list_for_each_entry(src, &rebuild_src_list, list) {
+		u8 *tag = NULL;
+
+		if (extra_devices) {
+			nblocks = src->devs[0].blocks;
+			tag = src->devs[0].tag;
+		} else {
+			nblocks = src->primarydevice_blocks;
+		}
+		DBG_BUGON(src->dev < 1);
+		idx = src->dev - 1;
+		sbi.devs[idx].blocks = nblocks;
+		if (tag && *tag)
+			memcpy(sbi.devs[idx].tag, tag, sizeof(sbi.devs[0].tag));
+		else
+			/* convert UUID of the source image to a hex string */
+			sprintf((char *)sbi.devs[idx].tag,
+				"%04x%04x%04x%04x%04x%04x%04x%04x",
+				(src->uuid[0] << 8) | src->uuid[1],
+				(src->uuid[2] << 8) | src->uuid[3],
+				(src->uuid[4] << 8) | src->uuid[5],
+				(src->uuid[6] << 8) | src->uuid[7],
+				(src->uuid[8] << 8) | src->uuid[9],
+				(src->uuid[10] << 8) | src->uuid[11],
+				(src->uuid[12] << 8) | src->uuid[13],
+				(src->uuid[14] << 8) | src->uuid[15]);
+	}
+	return 0;
+}
+
+static void erofs_mkfs_showsummaries(erofs_blk_t nblocks)
+{
+	char uuid_str[37] = {};
+
+	if (!(cfg.c_dbg_lvl > EROFS_ERR && cfg.c_showprogress))
+		return;
+
+	erofs_uuid_unparse_lower(sbi.uuid, uuid_str);
+
+	fprintf(stdout, "------\nFilesystem UUID: %s\n"
+		"Filesystem total blocks: %u (of %u-byte blocks)\n"
+		"Filesystem total inodes: %llu\n"
+		"Filesystem total metadata blocks: %u\n"
+		"Filesystem total deduplicated bytes (of source files): %llu\n",
+		uuid_str, nblocks, 1U << sbi.blkszbits, sbi.inos | 0ULL,
+		erofs_total_metablocks(),
+		sbi.saved_by_deduplication | 0ULL);
+}
 
 int main(int argc, char **argv)
 {
 	int err = 0;
 	struct erofs_buffer_head *sb_bh;
-	struct erofs_inode *root_inode;
-	erofs_nid_t root_nid;
-	struct stat64 st;
+	struct erofs_inode *root_inode, *packed_inode;
+	erofs_nid_t root_nid, packed_nid;
 	erofs_blk_t nblocks;
 	struct timeval t;
-	char uuid_str[37] = "not available";
+	FILE *packedfile = NULL;
 
 	erofs_init_configure();
 	erofs_mkfs_default_options();
@@ -603,22 +947,6 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	if (cfg.c_chunkbits) {
-		err = erofs_blob_init(cfg.c_blobdev_path);
-		if (err)
-			return 1;
-	}
-
-	err = lstat64(cfg.c_src_path, &st);
-	if (err)
-		return 1;
-	if (!S_ISDIR(st.st_mode)) {
-		erofs_err("root of the filesystem is not a directory - %s",
-			  cfg.c_src_path);
-		usage();
-		return 1;
-	}
-
 	if (cfg.c_unix_timestamp != -1) {
 		sbi.build_time      = cfg.c_unix_timestamp;
 		sbi.build_time_nsec = 0;
@@ -627,12 +955,20 @@ int main(int argc, char **argv)
 		sbi.build_time_nsec = t.tv_usec;
 	}
 
-	err = dev_open(cfg.c_img_path);
+	err = dev_open(&sbi, cfg.c_img_path);
 	if (err) {
 		usage();
 		return 1;
 	}
 
+	if (tar_mode && !erofstar.index_mode) {
+		err = erofs_diskbuf_init(1);
+		if (err) {
+			erofs_err("failed to initialize diskbuf: %s",
+				   strerror(-err));
+			goto exit;
+		}
+	}
 #ifdef WITH_ANDROID
 	if (cfg.fs_config_file &&
 	    load_canned_fs_config(cfg.fs_config_file) < 0) {
@@ -640,21 +976,64 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	if (cfg.block_list_file && erofs_droid_blocklist_fopen() < 0) {
+	if (cfg.block_list_file &&
+	    erofs_blocklist_open(cfg.block_list_file, false)) {
 		erofs_err("failed to open %s", cfg.block_list_file);
 		return 1;
 	}
 #endif
 	erofs_show_config();
-	if (erofs_sb_has_chunked_file())
-		erofs_warn("EXPERIMENTAL chunked file feature in use. Use at your own risk!");
-	if (cfg.c_ztailpacking)
-		erofs_warn("EXPERIMENTAL compressed inline data feature in use. Use at your own risk!");
-	erofs_set_fs_root(cfg.c_src_path);
+	if (cfg.c_fragments || cfg.c_extra_ea_name_prefixes) {
+		if (!cfg.c_pclusterblks_packed)
+			cfg.c_pclusterblks_packed = cfg.c_pclusterblks_def;
+
+		packedfile = erofs_packedfile_init();
+		if (IS_ERR(packedfile)) {
+			erofs_err("failed to initialize packedfile");
+			return 1;
+		}
+	}
+
+	if (cfg.c_fragments) {
+		err = z_erofs_fragments_init();
+		if (err) {
+			erofs_err("failed to initialize fragments");
+			return 1;
+		}
+	}
+
 #ifndef NDEBUG
 	if (cfg.c_random_pclusterblks)
 		srand(time(NULL));
 #endif
+	if (tar_mode && erofstar.index_mode) {
+		if (erofstar.mapfile) {
+			err = erofs_blocklist_open(erofstar.mapfile, true);
+			if (err) {
+				erofs_err("failed to open %s", erofstar.mapfile);
+				goto exit;
+			}
+		} else {
+			sbi.blkszbits = 9;
+		}
+	}
+
+	if (rebuild_mode) {
+		struct erofs_sb_info *src;
+
+		erofs_warn("EXPERIMENTAL rebuild mode in use. Use at your own risk!");
+
+		src = list_first_entry(&rebuild_src_list, struct erofs_sb_info, list);
+		if (!src)
+			goto exit;
+		err = erofs_read_superblock(src);
+		if (err) {
+			erofs_err("failed to read superblock of %s", src->devname);
+			goto exit;
+		}
+		sbi.blkszbits = src->blkszbits;
+	}
+
 	sb_bh = erofs_buffer_init();
 	if (IS_ERR(sb_bh)) {
 		err = PTR_ERR(sb_bh);
@@ -669,57 +1048,135 @@ int main(int argc, char **argv)
 		goto exit;
 	}
 
-	err = erofs_load_compress_hints();
+	/* make sure that the super block should be the very first blocks */
+	(void)erofs_mapbh(sb_bh->block);
+	if (erofs_btell(sb_bh, false) != 0) {
+		erofs_err("failed to reserve erofs_super_block");
+		goto exit;
+	}
+
+	err = erofs_load_compress_hints(&sbi);
 	if (err) {
 		erofs_err("failed to load compress hints %s",
 			  cfg.c_compress_hints_file);
 		goto exit;
 	}
 
-	err = z_erofs_compress_init(sb_bh);
+	err = z_erofs_compress_init(&sbi, sb_bh);
 	if (err) {
 		erofs_err("failed to initialize compressor: %s",
 			  erofs_strerror(err));
 		goto exit;
 	}
 
-	err = erofs_generate_devtable();
+	if (cfg.c_dedupe) {
+		if (!cfg.c_compr_alg[0]) {
+			erofs_err("Compression is not enabled.  Turn on chunk-based data deduplication instead.");
+			cfg.c_chunkbits = sbi.blkszbits;
+		} else {
+			err = z_erofs_dedupe_init(erofs_blksiz(&sbi));
+			if (err) {
+				erofs_err("failed to initialize deduplication: %s",
+					  erofs_strerror(err));
+				goto exit;
+			}
+		}
+	}
+
+	if (cfg.c_chunkbits) {
+		err = erofs_blob_init(cfg.c_blobdev_path, 1 << cfg.c_chunkbits);
+		if (err)
+			return 1;
+	}
+
+	if ((erofstar.index_mode && !erofstar.mapfile) || cfg.c_blobdev_path)
+		err = erofs_mkfs_init_devices(&sbi, 1);
 	if (err) {
 		erofs_err("failed to generate device table: %s",
 			  erofs_strerror(err));
 		goto exit;
 	}
-#ifdef HAVE_LIBUUID
-	uuid_unparse_lower(sbi.uuid, uuid_str);
-#endif
-	erofs_info("filesystem UUID: %s", uuid_str);
 
 	erofs_inode_manager_init();
 
-	err = erofs_build_shared_xattrs_from_path(cfg.c_src_path);
-	if (err) {
-		erofs_err("failed to build shared xattrs: %s",
-			  erofs_strerror(err));
-		goto exit;
-	}
+	if (tar_mode) {
+		root_inode = erofs_alloc_root_inode();
+		if (IS_ERR(root_inode)) {
+			err = PTR_ERR(root_inode);
+			goto exit;
+		}
 
-	root_inode = erofs_mkfs_build_tree_from_path(NULL, cfg.c_src_path);
-	if (IS_ERR(root_inode)) {
-		err = PTR_ERR(root_inode);
-		goto exit;
-	}
+		while (!(err = tarerofs_parse_tar(root_inode, &erofstar)));
 
+		if (err < 0)
+			goto exit;
+
+		err = erofs_rebuild_dump_tree(root_inode);
+		if (err < 0)
+			goto exit;
+	} else if (rebuild_mode) {
+		root_inode = erofs_alloc_root_inode();
+		if (IS_ERR(root_inode)) {
+			err = PTR_ERR(root_inode);
+			goto exit;
+		}
+
+		err = erofs_rebuild_load_trees(root_inode);
+		if (err)
+			goto exit;
+		err = erofs_rebuild_dump_tree(root_inode);
+		if (err)
+			goto exit;
+	} else {
+		err = erofs_build_shared_xattrs_from_path(&sbi, cfg.c_src_path);
+		if (err) {
+			erofs_err("failed to build shared xattrs: %s",
+				  erofs_strerror(err));
+			goto exit;
+		}
+
+		if (cfg.c_extra_ea_name_prefixes)
+			erofs_xattr_write_name_prefixes(&sbi, packedfile);
+
+		root_inode = erofs_mkfs_build_tree_from_path(cfg.c_src_path);
+		if (IS_ERR(root_inode)) {
+			err = PTR_ERR(root_inode);
+			goto exit;
+		}
+	}
 	root_nid = erofs_lookupnid(root_inode);
 	erofs_iput(root_inode);
 
-	if (cfg.c_chunkbits) {
-		erofs_info("total metadata: %u blocks", erofs_mapbh(NULL));
-		err = erofs_blob_remap();
+	if (erofstar.index_mode || cfg.c_chunkbits || sbi.extra_devices) {
+		if (erofstar.index_mode && !erofstar.mapfile)
+			sbi.devs[0].blocks =
+				BLK_ROUND_UP(&sbi, erofstar.offset);
+		err = erofs_mkfs_dump_blobs(&sbi);
 		if (err)
 			goto exit;
 	}
 
-	err = erofs_mkfs_update_super_block(sb_bh, root_nid, &nblocks);
+	packed_nid = 0;
+	if ((cfg.c_fragments || cfg.c_extra_ea_name_prefixes) &&
+	    erofs_sb_has_fragments(&sbi)) {
+		erofs_update_progressinfo("Handling packed_file ...");
+		packed_inode = erofs_mkfs_build_packedfile();
+		if (IS_ERR(packed_inode)) {
+			err = PTR_ERR(packed_inode);
+			goto exit;
+		}
+		packed_nid = erofs_lookupnid(packed_inode);
+		erofs_iput(packed_inode);
+	}
+
+	/* flush all buffers except for the superblock */
+	if (!erofs_bflush(NULL)) {
+		err = -EIO;
+		goto exit;
+	}
+
+	err = erofs_mkfs_update_super_block(sb_bh, root_nid, &nblocks,
+					    packed_nid);
 	if (err)
 		goto exit;
 
@@ -727,28 +1184,35 @@ int main(int argc, char **argv)
 	if (!erofs_bflush(NULL))
 		err = -EIO;
 	else
-		err = dev_resize(nblocks);
+		err = dev_resize(&sbi, nblocks);
 
-	if (!err && erofs_sb_has_sb_chksum())
+	if (!err && erofs_sb_has_sb_chksum(&sbi))
 		err = erofs_mkfs_superblock_csum_set();
 exit:
 	z_erofs_compress_exit();
-#ifdef WITH_ANDROID
-	erofs_droid_blocklist_fclose();
-#endif
-	dev_close();
+	z_erofs_dedupe_exit();
+	erofs_blocklist_close();
+	dev_close(&sbi);
 	erofs_cleanup_compress_hints();
 	erofs_cleanup_exclude_rules();
 	if (cfg.c_chunkbits)
 		erofs_blob_exit();
+	if (cfg.c_fragments)
+		z_erofs_fragments_exit();
+	erofs_packedfile_exit();
+	erofs_xattr_cleanup_name_prefixes();
+	erofs_rebuild_cleanup();
+	erofs_diskbuf_exit();
 	erofs_exit_configure();
+	if (tar_mode)
+		erofs_iostream_close(&erofstar.ios);
 
 	if (err) {
 		erofs_err("\tCould not format the device : %s\n",
 			  erofs_strerror(err));
 		return 1;
-	} else {
-		erofs_update_progressinfo("Build completed.\n");
 	}
+	erofs_update_progressinfo("Build completed.\n");
+	erofs_mkfs_showsummaries(nblocks);
 	return 0;
 }

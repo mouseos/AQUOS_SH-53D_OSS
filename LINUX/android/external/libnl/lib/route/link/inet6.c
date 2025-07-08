@@ -3,15 +3,19 @@
  * Copyright (c) 2010 Thomas Graf <tgraf@suug.ch>
  */
 
-#include <netlink-private/netlink.h>
+#include "nl-default.h"
+
+#include <linux/ipv6.h>
+#include <linux/snmp.h>
+
 #include <netlink/netlink.h>
 #include <netlink/attr.h>
 #include <netlink/route/rtnl.h>
 #include <netlink/route/link/inet6.h>
-#include <netlink-private/route/link/api.h>
 
-#include "netlink-private/route/utils.h"
-#include "netlink-private/utils.h"
+#include "nl-route.h"
+#include "link-api.h"
+#include "nl-priv-static-route/nl-priv-static-route.h"
 
 #define I6_ADDR_GEN_MODE_UNKNOWN	UINT8_MAX
 
@@ -21,6 +25,7 @@ struct inet6_data
 	struct ifla_cacheinfo	i6_cacheinfo;
 	uint32_t		i6_conf[DEVCONF_MAX];
 	struct in6_addr		i6_token;
+	uint8_t			i6_conf_len;
 	uint8_t			i6_addr_gen_mode;
 };
 
@@ -165,9 +170,13 @@ static int inet6_parse_protinfo(struct rtnl_link *link, struct nlattr *attr,
 		nla_memcpy(&i6->i6_cacheinfo, tb[IFLA_INET6_CACHEINFO],
 			   sizeof(i6->i6_cacheinfo));
 
-	if (tb[IFLA_INET6_CONF])
+	if (tb[IFLA_INET6_CONF]) {
+		i6->i6_conf_len = _NL_MIN(ARRAY_SIZE(i6->i6_conf),
+				      nla_len(tb[IFLA_INET6_CONF]) /
+					      sizeof(i6->i6_conf[0]));
 		nla_memcpy(&i6->i6_conf, tb[IFLA_INET6_CONF],
-			   sizeof(i6->i6_conf));
+			   sizeof(i6->i6_conf[0]) * i6->i6_conf_len);
+	}
 
 	if (tb[IFLA_INET6_TOKEN])
 		nla_memcpy(&i6->i6_token, tb[IFLA_INET6_TOKEN],
@@ -197,7 +206,7 @@ static int inet6_parse_protinfo(struct rtnl_link *link, struct nlattr *attr,
 			map_stat_id = map_stat_id_from_IPSTATS_MIB_v1;
 		}
 
-		len = min_t(int, __IPSTATS_MIB_MAX, len);
+		len = _NL_MIN(__IPSTATS_MIB_MAX, len);
 		for (i = 1; i < len; i++) {
 			memcpy(&stat, &cnt[i * sizeof(stat)], sizeof(stat));
 			rtnl_link_set_stat(link, map_stat_id[i], stat);
@@ -205,12 +214,13 @@ static int inet6_parse_protinfo(struct rtnl_link *link, struct nlattr *attr,
 	}
 
 	if (tb[IFLA_INET6_ICMP6STATS]) {
+#define _NL_ICMP6_MIB_MAX 6
 		unsigned char *cnt = nla_data(tb[IFLA_INET6_ICMP6STATS]);
 		uint64_t stat;
 		int i;
-		int len = min_t(int, __ICMP6_MIB_MAX, nla_len(tb[IFLA_INET6_ICMP6STATS]) / 8);
+		int len = _NL_MIN(_NL_ICMP6_MIB_MAX, nla_len(tb[IFLA_INET6_ICMP6STATS]) / 8);
 
-		_NL_STATIC_ASSERT (__ICMP6_MIB_MAX == 6);
+		_NL_STATIC_ASSERT (__ICMP6_MIB_MAX >= _NL_ICMP6_MIB_MAX);
 		_NL_STATIC_ASSERT (RTNL_LINK_ICMP6_CSUMERRORS - RTNL_LINK_ICMP6_INMSGS + 1 == 5);
 
 		for (i = 1; i < len; i++) {
@@ -351,7 +361,7 @@ static void inet6_dump_details(struct rtnl_link *link,
 	nl_dump_line(p, "      devconf:\n");
 	nl_dump_line(p, "      ");
 
-	for (i = 0; i < DEVCONF_MAX; i++) {
+	for (i = 0; i < (int) i6->i6_conf_len; i++) {
 		char buf2[64];
 		uint32_t value = i6->i6_conf[i];
 		int x, offset;
@@ -689,12 +699,42 @@ int rtnl_link_inet6_set_addr_gen_mode(struct rtnl_link *link, uint8_t mode)
 	return 0;
 }
 
-static void __init inet6_init(void)
+/**
+ * Get value of a ipv6 link configuration setting
+ * @arg link		Link object
+ * @arg cfgid		Configuration identifier
+ * @arg res		Result pointer
+ *
+ * Stores the value of the specified configuration setting in the provided
+ * result pointer.
+ *
+ * @return 0 on success or a negative error code.
+ * @return -NLE_RANGE cfgid is out of range or not provided by kernel.
+ * @return -NLE_NOATTR configuration setting not available
+ */
+int rtnl_link_inet6_get_conf(struct rtnl_link *link, unsigned int cfgid,
+			     uint32_t *res)
+{
+	struct inet6_data *id;
+
+	if (!(id = rtnl_link_af_data(link, &inet6_ops)))
+		return -NLE_NOATTR;
+
+	if (cfgid >= id->i6_conf_len)
+		return -NLE_RANGE;
+
+	*res = id->i6_conf[cfgid];
+
+	return 0;
+}
+
+
+static void _nl_init inet6_init(void)
 {
 	rtnl_link_af_register(&inet6_ops);
 }
 
-static void __exit inet6_exit(void)
+static void _nl_exit inet6_exit(void)
 {
 	rtnl_link_af_unregister(&inet6_ops);
 }

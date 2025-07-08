@@ -9,15 +9,16 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/tc.h>
+#include "nl-default.h"
+
 #include <netlink/netlink.h>
 #include <netlink/utils.h>
 #include <netlink/route/link.h>
-#include <netlink-private/route/tc-api.h>
 #include <netlink/route/qdisc.h>
 #include <netlink/route/class.h>
 #include <netlink/route/classifier.h>
+
+#include "tc-api.h"
 
 static struct nl_cache_ops rtnl_qdisc_ops;
 static struct nl_object_ops qdisc_obj_ops;
@@ -387,7 +388,8 @@ struct rtnl_qdisc *rtnl_qdisc_get_by_parent(struct nl_cache *cache,
 		return NULL;
 
 	nl_list_for_each_entry(q, &cache->c_items, ce_list) {
-		if (q->q_parent == parent && q->q_ifindex == ifindex) {
+		if (q->q_parent == parent &&
+		    q->q_ifindex == ((unsigned)ifindex)) {
 			nl_object_get((struct nl_object *) q);
 			return q;
 		}
@@ -419,7 +421,8 @@ struct rtnl_qdisc *rtnl_qdisc_get_by_kind(struct nl_cache *cache,
 		return NULL;
 
 	nl_list_for_each_entry(q, &cache->c_items, ce_list) {
-		if ((q->q_ifindex == ifindex) && (!strcmp(q->q_kind, kind))) {
+		if ((q->q_ifindex == ((unsigned)ifindex)) &&
+		    (!strcmp(q->q_kind, kind))) {
 			nl_object_get((struct nl_object *) q);
 			return q;
 		}
@@ -451,7 +454,8 @@ struct rtnl_qdisc *rtnl_qdisc_get(struct nl_cache *cache, int ifindex,
 		return NULL;
 
 	nl_list_for_each_entry(q, &cache->c_items, ce_list) {
-		if (q->q_handle == handle && q->q_ifindex == ifindex) {
+		if (q->q_handle == handle &&
+		    q->q_ifindex == ((unsigned)ifindex)) {
 			nl_object_get((struct nl_object *) q);
 			return q;
 		}
@@ -587,13 +591,13 @@ static struct nl_object_ops qdisc_obj_ops = {
 	.oo_id_attrs		= (TCA_ATTR_IFINDEX | TCA_ATTR_HANDLE),
 };
 
-static void __init qdisc_init(void)
+static void _nl_init qdisc_init(void)
 {
 	rtnl_tc_type_register(&qdisc_ops);
 	nl_cache_mngt_register(&rtnl_qdisc_ops);
 }
 
-static void __exit qdisc_exit(void)
+static void _nl_exit qdisc_exit(void)
 {
 	nl_cache_mngt_unregister(&rtnl_qdisc_ops);
 	rtnl_tc_type_unregister(&qdisc_ops);

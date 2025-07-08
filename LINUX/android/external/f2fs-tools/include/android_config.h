@@ -6,6 +6,8 @@
 #define HAVE_FSYNC 1
 #define HAVE_LINUX_HDREG_H 1
 #define HAVE_LINUX_LIMITS_H 1
+#define HAVE_LINUX_LOOP_H 1
+#define HAVE_LINUX_MAJOR_H 1
 #define HAVE_POSIX_ACL_H 1
 #define HAVE_LINUX_TYPES_H 1
 #define HAVE_LINUX_XATTR_H 1
@@ -30,8 +32,6 @@
 #define HAVE_FSTAT 1
 #define HAVE_FSTAT64 1
 #define HAVE_GETMNTENT 1
-#define HAVE_LLSEEK 1
-#define HAVE_LSEEK64 1
 #define HAVE_MEMSET 1
 #define HAVE_SELINUX_ANDROID_H 1
 #define HAVE_SETMNTENT 1
@@ -67,7 +67,6 @@
 #define HAVE_FSTAT 1
 #define HAVE_FSTAT64 1
 #define HAVE_GETMNTENT 1
-#define HAVE_LLSEEK 1
 #define HAVE_MEMSET 1
 #define HAVE_SPARSE_SPARSE_H 1
 #define HAVE_LIBLZ4 1
@@ -78,6 +77,5 @@
 #endif
 
 #if defined(_WIN32)
-#define HAVE_LSEEK64
 #define HAVE_SPARSE_SPARSE_H 1
 #endif

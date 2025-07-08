@@ -25,20 +25,6 @@ package {
     default_applicable_licenses: ["external_libdrm_license"],
 }
 
-// Added automatically by a large-scale-change that took the approach of
-// 'apply every license found to every target'. While this makes sure we respect
-// every license restriction, it may not be entirely correct.
-//
-// e.g. GPL in an MIT project might only apply to the contrib/ directory.
-//
-// Please consider splitting the single license below into multiple licenses,
-// taking care not to lose any license_kind information, and overriding the
-// default license using the 'licenses: [...]' property on targets as needed.
-//
-// For unused files, consider creating a 'fileGroup' with "//visibility:private"
-// to attach the license to, and including a comment whether the files may be
-// used in the current project.
-// See: http://go/android-license-faq
 license {
     name: "external_libdrm_license",
     visibility: [":__subpackages__"],
@@ -47,7 +33,7 @@ license {
         "SPDX-license-identifier-MIT",
         "legacy_unencumbered",
     ],
-    // large-scale-change unable to identify any license_text files
+    license_text: ["LICENSE"],
 }
 
 subdirs = ["*"]
@@ -81,21 +67,36 @@ cc_library_headers {
     vendor_available: true,
     host_supported: true,
     defaults: ["libdrm_defaults"],
-    export_include_dirs: ["include/drm", "android"],
+    export_include_dirs: [
+        "include/drm",
+        "android",
+    ],
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.virt",
+    ],
 }
 
 // Library for the device
 cc_library {
     name: "libdrm",
     recovery_available: true,
-    vendor_available: true,
     host_supported: true,
+    vendor_available: true,
+    product_available: true,
+    apex_available: [
+        "//apex_available:platform",
+        "//apex_available:anyapex",
+    ],
     defaults: [
         "libdrm_defaults",
         "libdrm_sources",
     ],
 
-    export_include_dirs: ["include/drm", "android"],
+    export_include_dirs: [
+        "include/drm",
+        "android",
+    ],
 
     cflags: [
         "-Wno-enum-conversion",
@@ -103,8 +104,50 @@ cc_library {
         "-Wno-sign-compare",
         "-Wno-tautological-compare",
     ],
+}
+
+// Rust bindings for libdrm, generated in a way compatible with drm-ffi crate.
+rust_bindgen {
+    name: "libdrm_sys",
+    crate_name: "drm_sys",
+    wrapper_src: "rust/drm_wrapper.h",
+    source_stem: "bindings",
+    bindgen_flags: [
+        "--ctypes-prefix=core::ffi",
+        "--no-prepend-enum-name",
+        "--with-derive-default",
+        "--with-derive-hash",
+        "--with-derive-eq",
+        "--blocklist-type=drm_handle_t",
+        "--blocklist-type=__BINDGEN_TMP_.*",
+        "--blocklist-type=drm_control_DRM_ADD_COMMAND",
+        "--allowlist-type=_?DRM_.*|drm_.*|hdr_.*",
+        "--allowlist-var=_?DRM_.*|drm_.*",
+        "--constified-enum-module=drm_control_.*",
+        "--constified-enum-module=drm_buf_desc_.*",
+        "--constified-enum-module=drm_map_type",
+        "--constified-enum-module=drm_map_flags",
+        "--constified-enum-module=drm_stat_type",
+        "--constified-enum-module=drm_lock_flags",
+        "--constified-enum-module=drm_dma_flags",
+        "--constified-enum-module=drm_ctx_flags",
+        "--constified-enum-module=drm_drawable_info_type_t",
+        "--constified-enum-module=drm_vblank_seq_type",
+        "--constified-enum-module=drm_mode_subconnector",
+    ],
+    shared_libs: [
+        "libdrm",
+        "libcutils",
+        "liblog",
+    ],
+    host_supported: true,
+    vendor_available: true,
+    product_available: true,
     apex_available: [
+        "//apex_available:anyapex",
         "//apex_available:platform",
-        "com.android.virt",
+    ],
+    visibility: [
+        "//external/rust/crates/drm-ffi",
     ],
 }

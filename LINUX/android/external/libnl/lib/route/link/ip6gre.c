@@ -13,15 +13,19 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
+#include "nl-default.h"
+
+#include <linux/if_tunnel.h>
+
 #include <netlink/netlink.h>
 #include <netlink/attr.h>
 #include <netlink/utils.h>
 #include <netlink/object.h>
 #include <netlink/route/rtnl.h>
 #include <netlink/route/link/ip6gre.h>
-#include <netlink-private/route/link/api.h>
-#include <linux/if_tunnel.h>
+
+#include "nl-route.h"
+#include "link-api.h"
 
 #define IP6GRE_ATTR_LINK          (1 << 0)
 #define IP6GRE_ATTR_IFLAGS        (1 << 1)
@@ -875,12 +879,12 @@ int rtnl_link_ip6gre_get_fwmark(struct rtnl_link *link, uint32_t *fwmark)
 	return 0;
 }
 
-static void __init ip6gre_init(void)
+static void _nl_init ip6gre_init(void)
 {
 	rtnl_link_register_info(&ip6gre_info_ops);
 }
 
-static void __exit ip6gre_exit(void)
+static void _nl_exit ip6gre_exit(void)
 {
 	rtnl_link_unregister_info(&ip6gre_info_ops);
 }

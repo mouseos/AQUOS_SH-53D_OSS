@@ -15,14 +15,16 @@
  *
  * @{
  */
-#include <netlink-private/netlink.h>
+#include "nl-default.h"
+
 #include <netlink/netlink.h>
 #include <netlink/utils.h>
 #include <netlink/object.h>
 #include <netlink/route/rtnl.h>
-#include <netlink-private/route/link/api.h>
 #include <netlink/route/link/geneve.h>
 
+#include "nl-route.h"
+#include "link-api.h"
 
 /** @cond SKIP */
 #define GENEVE_ATTR_ID          (1<<0)
@@ -788,12 +790,12 @@ int rtnl_link_geneve_get_flags(struct rtnl_link *link, uint8_t *flags)
 }
 
 /** @} */
-static void __init geneve_init(void)
+static void _nl_init geneve_init(void)
 {
         rtnl_link_register_info(&geneve_info_ops);
 }
 
-static void __exit geneve_exit(void)
+static void _nl_exit geneve_exit(void)
 {
         rtnl_link_unregister_info(&geneve_info_ops);
 }

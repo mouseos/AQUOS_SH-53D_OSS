@@ -1,8 +1,9 @@
 /*
  * Client routines for the CUPS scheduler.
  *
- * Copyright © 2007-2019 by Apple Inc.
- * Copyright © 1997-2007 by Easy Software Products, all rights reserved.
+ * Copyright © 2021 by OpenPrinting.
+ * Copyright © 2007-2021 by Apple Inc.
+ * Copyright © 1997-2007 by Easy Software Products, all rights reserved.
  *
  * This file contains Kerberos support code, copyright 2006 by
  * Jelmer Vernooij.
@@ -2109,18 +2110,13 @@ cupsdSendHeader(
     }
     else if (auth_type == CUPSD_AUTH_NEGOTIATE)
     {
-#if defined(SO_PEERCRED) && defined(AF_LOCAL)
-      if (httpAddrFamily(httpGetAddress(con->http)) == AF_LOCAL)
-	strlcpy(auth_str, "PeerCred", sizeof(auth_str));
-      else
-#endif /* SO_PEERCRED && AF_LOCAL */
       strlcpy(auth_str, "Negotiate", sizeof(auth_str));
     }
 
-    if (con->best && auth_type != CUPSD_AUTH_NEGOTIATE && !con->is_browser && !_cups_strcasecmp(httpGetHostname(con->http, NULL, 0), "localhost"))
+    if (con->best && !con->is_browser && !_cups_strcasecmp(httpGetHostname(con->http, NULL, 0), "localhost"))
     {
      /*
-      * Add a "trc" (try root certification) parameter for local non-Kerberos
+      * Add a "trc" (try root certification) parameter for local
       * requests when the request requires system group membership - then the
       * client knows the root certificate can/should be used.
       *
@@ -2789,6 +2785,25 @@ get_file(cupsd_client_t *con,		/* I  - Client connection */
 
     perm_check = 0;
   }
+  else if (!strcmp(con->uri, "/admin/conf/cupsd.conf"))
+  {
+    strlcpy(filename, ConfigurationFile, len);
+
+    perm_check = 0;
+  }
+  else if (!strncmp(con->uri, "/admin/log/", 11))
+  {
+    if (!strncmp(con->uri + 11, "access_log", 10) && AccessLog[0] == '/')
+      strlcpy(filename, AccessLog, len);
+    else if (!strncmp(con->uri + 11, "error_log", 9) && ErrorLog[0] == '/')
+      strlcpy(filename, ErrorLog, len);
+    else if (!strncmp(con->uri + 11, "page_log", 8) && PageLog[0] == '/')
+      strlcpy(filename, PageLog, len);
+    else
+      return (NULL);
+
+    perm_check = 0;
+  }
   else if (!strncmp(con->uri, "/admin", 6) || !strncmp(con->uri, "/classes", 8) || !strncmp(con->uri, "/jobs", 5) || !strncmp(con->uri, "/printers", 9))
   {
    /*
@@ -2819,25 +2834,6 @@ get_file(cupsd_client_t *con,		/* I  - Client connection */
     }
 
     strlcpy(filename, p->strings, len);
-
-    perm_check = 0;
-  }
-  else if (!strcmp(con->uri, "/admin/conf/cupsd.conf"))
-  {
-    strlcpy(filename, ConfigurationFile, len);
-
-    perm_check = 0;
-  }
-  else if (!strncmp(con->uri, "/admin/log/", 11))
-  {
-    if (!strncmp(con->uri + 11, "access_log", 10) && AccessLog[0] == '/')
-      strlcpy(filename, AccessLog, len);
-    else if (!strncmp(con->uri + 11, "error_log", 9) && ErrorLog[0] == '/')
-      strlcpy(filename, ErrorLog, len);
-    else if (!strncmp(con->uri + 11, "page_log", 8) && PageLog[0] == '/')
-      strlcpy(filename, PageLog, len);
-    else
-      return (NULL);
 
     perm_check = 0;
   }
@@ -2938,7 +2934,7 @@ get_file(cupsd_client_t *con,		/* I  - Client connection */
 	*/
 
 	if (language[3])
-	  language[0] = '\0';		/* Strip country code */
+	  language[3] = '\0';		/* Strip country code */
 	else
 	  language[0] = '\0';		/* Strip language */
       }
@@ -3124,8 +3120,7 @@ is_cgi(cupsd_client_t *con,		/* I - Client connection */
     return (0);
   }
 
-  if (!_cups_strcasecmp(type->type, "x-httpd-cgi") &&
-      (filestats->st_mode & 0111))
+  if (!_cups_strcasecmp(type->type, "x-httpd-cgi") && (filestats->st_mode & 0111) && (getuid() || !(filestats->st_mode & 022)))
   {
    /*
     * "application/x-httpd-cgi" is a CGI script.
@@ -3471,8 +3466,7 @@ pipe_command(cupsd_client_t *con,	/* I - Client connection */
   }
   else
   {
-    sprintf(content_length, "CONTENT_LENGTH=" CUPS_LLFMT,
-            CUPS_LLCAST con->bytes);
+    snprintf(content_length, sizeof(content_length), "CONTENT_LENGTH=" CUPS_LLFMT, CUPS_LLCAST con->bytes);
     snprintf(content_type, sizeof(content_type), "CONTENT_TYPE=%s",
              httpGetField(con->http, HTTP_FIELD_CONTENT_TYPE));
 

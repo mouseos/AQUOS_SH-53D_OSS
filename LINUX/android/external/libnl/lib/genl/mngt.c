@@ -12,7 +12,8 @@
  * @{
  */
 
-#include <netlink-private/genl.h>
+#include "nl-default.h"
+
 #include <netlink/netlink.h>
 #include <netlink/genl/genl.h>
 #include <netlink/genl/mngt.h>
@@ -20,7 +21,7 @@
 #include <netlink/genl/ctrl.h>
 #include <netlink/utils.h>
 
-#include "netlink-private/utils.h"
+#include "nl-genl.h"
 
 /** @cond SKIP */
 
@@ -247,7 +248,7 @@ int genl_register(struct nl_cache_ops *ops)
 		goto errout;
 	}
 
-	if (ops->co_hdrsize < GENL_HDRSIZE(0)) {
+	if (ops->co_hdrsize < (int)GENL_HDRSIZE(0)) {
 		err = -NLE_INVAL;
 		goto errout;
 	}
@@ -307,6 +308,7 @@ static int __genl_ops_resolve(struct nl_cache *ctrl, struct genl_ops *ops)
 	return -NLE_OBJ_NOTFOUND;
 }
 
+/* WARNING: this symbol is wrongly exported in libnl-genl-3.sym. */
 int genl_resolve_id(struct genl_ops *ops)
 {
 	struct nl_sock *sk;

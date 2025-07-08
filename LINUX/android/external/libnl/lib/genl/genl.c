@@ -9,10 +9,14 @@
  * @{
  */
 
-#include <netlink-private/genl.h>
+#include "nl-default.h"
+
 #include <netlink/netlink.h>
 #include <netlink/genl/genl.h>
 #include <netlink/utils.h>
+
+#include "nl-genl.h"
+#include "nl-aux-core/nl-core.h"
 
 /**
  * @name Generic Netlink Socket
@@ -112,12 +116,14 @@ int genl_send_simple(struct nl_sock *sk, int family, int cmd,
 int genlmsg_valid_hdr(struct nlmsghdr *nlh, int hdrlen)
 {
 	struct genlmsghdr *ghdr;
+	int l;
 
 	if (!nlmsg_valid_hdr(nlh, GENL_HDRLEN))
 		return 0;
 
 	ghdr = nlmsg_data(nlh);
-	if (genlmsg_len(ghdr) < NLMSG_ALIGN(hdrlen))
+	l = genlmsg_len(ghdr);
+	if (l < 0 || ((unsigned)l) < NLMSG_ALIGN(hdrlen))
 		return 0;
 
 	return 1;

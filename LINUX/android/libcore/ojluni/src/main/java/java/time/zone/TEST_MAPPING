@@ -9,18 +9,7 @@
       ]
     },
     {
-      "name": "CtsLibcoreOjTestCases",
-      "options": [
-        {
-          "include-filter": "tck.java.time.zone"
-        },
-        {
-          "include-filter": "tck.java.time.zone.serial"
-        },
-        {
-          "include-filter": "test.java.time.zone"
-        }
-      ]
+      "name": "CtsLibcoreOjTestCases_time_zone"
     }
   ]
 }

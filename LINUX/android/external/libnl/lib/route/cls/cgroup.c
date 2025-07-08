@@ -10,17 +10,23 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/tc.h>
+#include "nl-default.h"
+
 #include <netlink/netlink.h>
 #include <netlink/attr.h>
 #include <netlink/utils.h>
-#include <netlink-private/route/tc-api.h>
 #include <netlink/route/classifier.h>
 #include <netlink/route/cls/cgroup.h>
 #include <netlink/route/cls/ematch.h>
 
+#include "tc-api.h"
+
 /** @cond SKIP */
+struct rtnl_cgroup {
+	struct rtnl_ematch_tree *cg_ematch;
+	int cg_mask;
+};
+
 #define CGROUP_ATTR_EMATCH      0x001
 /** @endcond */
 
@@ -180,12 +186,12 @@ static struct rtnl_tc_ops cgroup_ops = {
 	},
 };
 
-static void __init cgroup_init(void)
+static void _nl_init cgroup_init(void)
 {
 	rtnl_tc_register(&cgroup_ops);
 }
 
-static void __exit cgroup_exit(void)
+static void _nl_exit cgroup_exit(void)
 {
 	rtnl_tc_unregister(&cgroup_ops);
 }

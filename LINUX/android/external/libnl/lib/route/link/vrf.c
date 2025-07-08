@@ -17,17 +17,20 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
+#include "nl-default.h"
+
+#include <linux/if_link.h>
+#include <linux/rtnetlink.h>
+
 #include <netlink/netlink.h>
 #include <netlink/attr.h>
 #include <netlink/utils.h>
 #include <netlink/object.h>
 #include <netlink/route/rtnl.h>
-#include <netlink-private/route/link/api.h>
 #include <netlink/route/link/vrf.h>
 
-#include <linux/if_link.h>
-#include <linux-private/linux/rtnetlink.h>
+#include "nl-route.h"
+#include "link-api.h"
 
 #define VRF_TABLE_ID_MAX  RT_TABLE_MAX
 
@@ -244,12 +247,12 @@ int rtnl_link_vrf_set_tableid(struct rtnl_link *link, uint32_t id)
 
 /** @} */
 
-static void __init vrf_init(void)
+static void _nl_init vrf_init(void)
 {
 	rtnl_link_register_info(&vrf_info_ops);
 }
 
-static void __exit vrf_exit(void)
+static void _nl_exit vrf_exit(void)
 {
 	rtnl_link_unregister_info(&vrf_info_ops);
 }

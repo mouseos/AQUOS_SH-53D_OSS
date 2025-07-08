@@ -10,16 +10,31 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
+#include "nl-default.h"
+
 #include <netlink/netlink.h>
 #include <netlink/attr.h>
 #include <netlink/utils.h>
 #include <netlink/object.h>
 #include <netlink/fib_lookup/request.h>
 
+#include "nl-priv-dynamic-core/nl-core.h"
+#include "nl-priv-dynamic-core/object-api.h"
+
 static struct nl_object_ops request_obj_ops;
 
 /** @cond SKIP */
+struct flnl_request
+{
+	NLHDR_COMMON
+
+	struct nl_addr *	lr_addr;
+	uint32_t		lr_fwmark;
+	uint8_t			lr_tos;
+	uint8_t			lr_scope;
+	uint8_t			lr_table;
+};
+
 #define REQUEST_ATTR_ADDR	0x01
 #define REQUEST_ATTR_FWMARK	0x02
 #define REQUEST_ATTR_TOS	0x04
@@ -57,15 +72,13 @@ static uint64_t request_compare(struct nl_object *_a, struct nl_object *_b,
 	struct flnl_request *b = (struct flnl_request *) _b;
 	uint64_t diff = 0;
 
-#define REQ_DIFF(ATTR, EXPR) ATTR_DIFF(attrs, REQUEST_ATTR_##ATTR, a, b, EXPR)
-
-	diff |= REQ_DIFF(FWMARK,	a->lr_fwmark != b->lr_fwmark);
-	diff |= REQ_DIFF(TOS,		a->lr_tos != b->lr_tos);
-	diff |= REQ_DIFF(SCOPE,		a->lr_scope != b->lr_scope);
-	diff |= REQ_DIFF(TABLE,		a->lr_table != b->lr_table);
-	diff |= REQ_DIFF(ADDR,		nl_addr_cmp(a->lr_addr, b->lr_addr));
-
-#undef REQ_DIFF
+#define _DIFF(ATTR, EXPR) ATTR_DIFF(attrs, ATTR, a, b, EXPR)
+	diff |= _DIFF(REQUEST_ATTR_FWMARK, a->lr_fwmark != b->lr_fwmark);
+	diff |= _DIFF(REQUEST_ATTR_TOS, a->lr_tos != b->lr_tos);
+	diff |= _DIFF(REQUEST_ATTR_SCOPE, a->lr_scope != b->lr_scope);
+	diff |= _DIFF(REQUEST_ATTR_TABLE, a->lr_table != b->lr_table);
+	diff |= _DIFF(REQUEST_ATTR_ADDR, nl_addr_cmp(a->lr_addr, b->lr_addr));
+#undef _DIFF
 
 	return diff;
 }

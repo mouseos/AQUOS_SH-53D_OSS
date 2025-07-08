@@ -1,7 +1,7 @@
 /*
  * HTTP routines for CUPS.
  *
- * Copyright © 2007-2019 by Apple Inc.
+ * Copyright © 2007-2021 by Apple Inc.
  * Copyright © 1997-2007 by Easy Software Products, all rights reserved.
  *
  * This file contains Kerberos support code, copyright 2006 by
@@ -2421,6 +2421,7 @@ httpReconnect2(http_t *http,		/* I - HTTP connection */
     if (_httpTLSStart(http) != 0)
     {
       httpAddrClose(NULL, http->fd);
+      http->fd = -1;
 
       return (-1);
     }
@@ -2786,6 +2787,7 @@ _httpUpdate(http_t        *http,	/* I - HTTP connection */
       if (_httpTLSStart(http) != 0)
       {
         httpAddrClose(NULL, http->fd);
+        http->fd = -1;
 
 	*status = http->status = HTTP_STATUS_ERROR;
 	return (0);

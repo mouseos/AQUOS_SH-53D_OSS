@@ -12,13 +12,18 @@
  * @{
  */
 
+#include "nl-default.h"
+
 #include <sys/types.h>
+
 #include <linux/netfilter/nfnetlink_log.h>
 
-#include <netlink-private/netlink.h>
 #include <netlink/attr.h>
 #include <netlink/netfilter/nfnl.h>
 #include <netlink/netfilter/log.h>
+
+#include "nl-priv-dynamic-core/nl-core.h"
+#include "nl-priv-dynamic-core/cache-api.h"
 
 /**
  * @name Log Commands
@@ -237,12 +242,12 @@ static struct nl_cache_ops nfnl_log_ops = {
 	},
 };
 
-static void __init log_init(void)
+static void _nl_init log_init(void)
 {
 	nl_cache_mngt_register(&nfnl_log_ops);
 }
 
-static void __exit log_exit(void)
+static void _nl_exit log_exit(void)
 {
 	nl_cache_mngt_unregister(&nfnl_log_ops);
 }

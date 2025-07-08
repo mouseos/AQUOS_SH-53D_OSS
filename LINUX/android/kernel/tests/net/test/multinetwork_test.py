@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 #
 # Copyright 2014 The Android Open Source Project
 #
@@ -41,15 +41,6 @@ IPV6_FLOWINFO = 11
 SYNCOOKIES_SYSCTL = "/proc/sys/net/ipv4/tcp_syncookies"
 TCP_MARK_ACCEPT_SYSCTL = "/proc/sys/net/ipv4/tcp_fwmark_accept"
 
-# The IP[V6]UNICAST_IF socket option was added between 3.1 and 3.4.
-HAVE_UNICAST_IF = net_test.LINUX_VERSION >= (3, 4, 0)
-
-# RTPROT_RA is working properly with 4.14
-HAVE_RTPROT_RA = net_test.LINUX_VERSION >= (4, 14, 0)
-
-class ConfigurationError(AssertionError):
-  pass
-
 
 class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
 
@@ -74,6 +65,7 @@ class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
     s.sendto(packet + packets.PING_PAYLOAD, (dstsockaddr, 19321))
 
     self.ExpectPacketOn(netid, msg, expected)
+    s.close()
 
   def CheckTCPSYNPacket(self, version, netid, routing_mode):
     s = self.BuildSocket(version, net_test.TCPSocket, netid, routing_mode)
@@ -111,7 +103,8 @@ class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
       s.connect((dstsockaddr, 53))
       s.send(UDP_PAYLOAD)
       self.ExpectPacketOn(netid, msg % "connect/send", expected)
-      s.close()
+
+    s.close()
 
   def CheckRawGrePacket(self, version, netid, routing_mode):
     s = self.BuildSocket(version, net_test.RawGRESocket, netid, routing_mode)
@@ -119,7 +112,7 @@ class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
     inner_version = {4: 6, 6: 4}[version]
     inner_src = self.MyAddress(inner_version, netid)
     inner_dst = self.GetRemoteAddress(inner_version)
-    inner = str(packets.UDP(inner_version, inner_src, inner_dst, sport=None)[1])
+    inner = bytes(packets.UDP(inner_version, inner_src, inner_dst, sport=None)[1])
 
     ethertype = {4: net_test.ETH_P_IP, 6: net_test.ETH_P_IPV6}[inner_version]
     # A GRE header can be as simple as two zero bytes and the ethertype.
@@ -132,6 +125,7 @@ class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
     msg = "Raw IPv%d GRE with inner IPv%d UDP: expected %s on %s" % (
         version, inner_version, desc, self.GetInterfaceName(netid))
     self.ExpectPacketOn(netid, msg, expected)
+    s.close()
 
   def CheckOutgoingPackets(self, routing_mode):
     for _ in range(self.ITERATIONS):
@@ -171,7 +165,6 @@ class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
     """Checks that oif routing selects the right outgoing interface."""
     self.CheckOutgoingPackets("oif")
 
-  @unittest.skipUnless(HAVE_UNICAST_IF, "no support for UNICAST_IF")
   def testUcastOifRouting(self):
     """Checks that ucast oif routing selects the right outgoing interface."""
     self.CheckOutgoingPackets("ucast_oif")
@@ -179,7 +172,7 @@ class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
   def CheckRemarking(self, version, use_connect):
     modes = ["mark", "oif", "uid"]
     # Setting UNICAST_IF on connected sockets does not work.
-    if not use_connect and HAVE_UNICAST_IF:
+    if not use_connect:
       modes += ["ucast_oif"]
 
     for mode in modes:
@@ -259,6 +252,8 @@ class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
         self.SelectInterface(s, None, mode)
         prevnetid = netid
 
+      s.close()
+
   def testIPv4Remarking(self):
     """Checks that updating the mark on an IPv4 socket changes routing."""
     self.CheckRemarking(4, False)
@@ -279,11 +274,11 @@ class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
         s.setsockopt(net_test.SOL_IPV6, net_test.IPV6_FLOWINFO_SEND, 1)
 
         # Set some destination options.
-        nonce = "\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c"
-        dstopts = "".join([
-            "\x11\x02",              # Next header=UDP, 24 bytes of options.
-            "\x01\x06", "\x00" * 6,  # PadN, 6 bytes of padding.
-            "\x8b\x0c",              # ILNP nonce, 12 bytes.
+        nonce = b"\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c"
+        dstopts = b"".join([
+            b"\x11\x02",               # Next header=UDP, 24 bytes of options.
+            b"\x01\x06", b"\x00" * 6,  # PadN, 6 bytes of padding.
+            b"\x8b\x0c",               # ILNP nonce, 12 bytes.
             nonce
         ])
         s.setsockopt(net_test.SOL_IPV6, IPV6_DSTOPTS, dstopts)
@@ -310,6 +305,7 @@ class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
         msg = "IPv6 UDP using sticky pktinfo: expected UDP packet on %s" % (
             self.GetInterfaceName(netid))
         self.ExpectPacketOn(netid, msg, expected)
+        s.close()
 
   def CheckPktinfoRouting(self, version):
     for _ in range(self.ITERATIONS):
@@ -349,6 +345,8 @@ class OutgoingTest(multinetwork_base.MultiNetworkBaseTest):
         msg = "IPv%d UDP using pktinfo routing: expected %s on %s" % (
             version, desc, self.GetInterfaceName(netid))
         self.ExpectPacketOn(netid, msg, expected)
+
+        s.close()
 
   def testIPv4PktinfoRouting(self):
     self.CheckPktinfoRouting(4)
@@ -565,8 +563,6 @@ class TCPAcceptTest(multinetwork_base.InboundMarkingTest):
   def testIPv6ExplicitMark(self):
     self.CheckTCP(6, [self.MODE_EXPLICIT_MARK])
 
-@unittest.skipUnless(multinetwork_base.HAVE_AUTOCONF_TABLE,
-                     "need support for per-table autoconf")
 class RIOTest(multinetwork_base.MultiNetworkBaseTest):
   """Test for IPv6 RFC 4191 route information option
 
@@ -596,12 +592,20 @@ class RIOTest(multinetwork_base.MultiNetworkBaseTest):
     super(RIOTest, self).setUp()
     self.NETID = random.choice(self.NETIDS)
     self.IFACE = self.GetInterfaceName(self.NETID)
-    # return min/max plen to default values before each test case
+    # return sysctls to default values before each test case
     self.SetAcceptRaRtInfoMinPlen(0)
     self.SetAcceptRaRtInfoMaxPlen(0)
+    if multinetwork_base.HAVE_ACCEPT_RA_MIN_LFT:
+      self.SetAcceptRaMinLft(0)
+    if multinetwork_base.HAVE_RA_HONOR_PIO_LIFE:
+      self.SetRaHonorPioLife(0)
 
   def GetRoutingTable(self):
-    return self._TableForNetid(self.NETID)
+    if multinetwork_base.HAVE_AUTOCONF_TABLE:
+      return self._TableForNetid(self.NETID)
+    else:
+      # main table
+      return 254
 
   def SetAcceptRaRtInfoMinPlen(self, plen):
     self.SetSysctl(
@@ -620,6 +624,22 @@ class RIOTest(multinetwork_base.MultiNetworkBaseTest):
   def GetAcceptRaRtInfoMaxPlen(self):
     return int(self.GetSysctl(
         "/proc/sys/net/ipv6/conf/%s/accept_ra_rt_info_max_plen" % self.IFACE))
+
+  def SetAcceptRaMinLft(self, min_lft):
+    self.SetSysctl(
+        "/proc/sys/net/ipv6/conf/%s/accept_ra_min_lft" % self.IFACE, min_lft)
+
+  def GetAcceptRaMinLft(self):
+    return int(self.GetSysctl(
+        "/proc/sys/net/ipv6/conf/%s/accept_ra_min_lft" % self.IFACE))
+
+  def SetRaHonorPioLife(self, enabled):
+    self.SetSysctl(
+        "/proc/sys/net/ipv6/conf/%s/ra_honor_pio_life" % self.IFACE, enabled)
+
+  def GetRaHonorPioLife(self):
+    return int(self.GetSysctl(
+        "/proc/sys/net/ipv6/conf/%s/ra_honor_pio_life" % self.IFACE))
 
   def SendRIO(self, rtlifetime, plen, prefix, prf):
     options = scapy.ICMPv6NDOptRouteInfo(rtlifetime=rtlifetime, plen=plen,
@@ -660,13 +680,7 @@ class RIOTest(multinetwork_base.MultiNetworkBaseTest):
     table = self._TableForNetid(netid)
     router = self._RouterAddress(netid, version)
     ifindex = self.ifindices[netid]
-    # We actually want to specify RTPROT_RA, however an upstream
-    # kernel bug causes RAs to be installed with RTPROT_BOOT.
-    if HAVE_RTPROT_RA:
-       rtprot = iproute.RTPROT_RA
-    else:
-       rtprot = iproute.RTPROT_BOOT
-    self.iproute._Route(version, rtprot, iproute.RTM_DELROUTE,
+    self.iproute._Route(version, iproute.RTPROT_RA, iproute.RTM_DELROUTE,
                         table, prefix, plen, router, ifindex, None, None)
 
   def testSetAcceptRaRtInfoMinPlen(self):
@@ -679,6 +693,8 @@ class RIOTest(multinetwork_base.MultiNetworkBaseTest):
       self.SetAcceptRaRtInfoMaxPlen(plen)
       self.assertEqual(plen, self.GetAcceptRaRtInfoMaxPlen())
 
+  @unittest.skipUnless(multinetwork_base.HAVE_AUTOCONF_TABLE,
+                       "need support for per-table autoconf")
   def testZeroRtLifetime(self):
     PREFIX = "2001:db8:8901:2300::"
     RTLIFETIME = 73500
@@ -725,6 +741,8 @@ class RIOTest(multinetwork_base.MultiNetworkBaseTest):
     routes = self.FindRoutesWithDestination(PREFIX)
     self.assertFalse(routes)
 
+  @unittest.skipUnless(multinetwork_base.HAVE_AUTOCONF_TABLE,
+                       "need support for per-table autoconf")
   def testSimpleAccept(self):
     PREFIX = "2001:db8:8904:2345::"
     RTLIFETIME = 9993
@@ -739,6 +757,8 @@ class RIOTest(multinetwork_base.MultiNetworkBaseTest):
     self.AssertExpirationInRange(routes, RTLIFETIME, 1)
     self.DelRA6(PREFIX, PLEN)
 
+  @unittest.skipUnless(multinetwork_base.HAVE_AUTOCONF_TABLE,
+                       "need support for per-table autoconf")
   def testEqualMinMaxAccept(self):
     PREFIX = "2001:db8:8905:2345::"
     RTLIFETIME = 6326
@@ -753,6 +773,8 @@ class RIOTest(multinetwork_base.MultiNetworkBaseTest):
     self.AssertExpirationInRange(routes, RTLIFETIME, 1)
     self.DelRA6(PREFIX, PLEN)
 
+  @unittest.skipUnless(multinetwork_base.HAVE_AUTOCONF_TABLE,
+                       "need support for per-table autoconf")
   def testZeroLengthPrefix(self):
     PREFIX = "2001:db8:8906:2345::"
     RTLIFETIME = self.RA_VALIDITY * 2
@@ -774,6 +796,8 @@ class RIOTest(multinetwork_base.MultiNetworkBaseTest):
     self.AssertExpirationInRange(default, RTLIFETIME, 1)
     self.DelRA6(PREFIX, PLEN)
 
+  @unittest.skipUnless(multinetwork_base.HAVE_AUTOCONF_TABLE,
+                       "need support for per-table autoconf")
   def testManyRIOs(self):
     RTLIFETIME = 68012
     PLEN = 56
@@ -793,12 +817,125 @@ class RIOTest(multinetwork_base.MultiNetworkBaseTest):
     # Expect that we can return to baseline config without lingering routes.
     self.assertEqual(baseline, self.CountRoutes())
 
+  # Contextually, testAcceptRa tests do not belong in RIOTest, but as it
+  # turns out, RIOTest has all the useful helpers defined for these tests.
+  # TODO: Rename test class or merge RIOTest with RATest.
+  @unittest.skipUnless(multinetwork_base.HAVE_ACCEPT_RA_MIN_LFT,
+                       "need support for accept_ra_min_lft")
+  def testAcceptRaMinLftReadWrite(self):
+    self.SetAcceptRaMinLft(500)
+    self.assertEqual(500, self.GetAcceptRaMinLft())
+
+  @unittest.skipUnless(multinetwork_base.HAVE_RA_HONOR_PIO_LIFE,
+                       "need support for ra_honor_pio_life")
+  def testRaHonorPioLifeReadWrite(self):
+    self.assertEqual(0, self.GetRaHonorPioLife())
+    self.SetRaHonorPioLife(1)
+    self.assertEqual(1, self.GetRaHonorPioLife())
+
+  @unittest.skipUnless(multinetwork_base.HAVE_RA_HONOR_PIO_LIFE,
+                       "need support for ra_honor_pio_life")
+  def testRaHonorPioLife(self):
+    self.SetRaHonorPioLife(1)
+
+    # Test setup has sent an initial RA -- expire it.
+    self.SendRA(self.NETID, routerlft=0, piolft=0)
+    time.sleep(0.1) # Give the kernel time to notice our RA
+
+    # Assert that the address was deleted.
+    self.assertIsNone(self.MyAddress(6, self.NETID))
+
+  @unittest.skipUnless(multinetwork_base.HAVE_ACCEPT_RA_MIN_LFT,
+                       "need support for accept_ra_min_lft")
+  def testAcceptRaMinLftRouterLifetime(self):
+    self.SetAcceptRaMinLft(500)
+
+    # Test setup has sent an initial RA. Expire it and test that the RA with
+    # lifetime 0 deletes the default route.
+    self.SendRA(self.NETID, routerlft=0, piolft=0)
+    time.sleep(0.1) # Give the kernel time to notice our RA
+    self.assertEqual([], self.FindRoutesWithGateway())
+
+    # RA with lifetime 400 is ignored
+    self.SendRA(self.NETID, routerlft=400)
+    time.sleep(0.1) # Give the kernel time to notice our RA
+    self.assertEqual([], self.FindRoutesWithGateway())
+
+    # RA with lifetime 600 is processed
+    self.SendRA(self.NETID, routerlft=600)
+    time.sleep(0.1) # Give the kernel time to notice our RA
+    # SendRA sets routerlft to 0 if HAVE_AUTOCONF_TABLE is false...
+    # TODO: Fix this correctly.
+    if multinetwork_base.HAVE_AUTOCONF_TABLE:
+      self.assertEqual(1, len(self.FindRoutesWithGateway()))
+
+  @unittest.skipUnless(multinetwork_base.HAVE_ACCEPT_RA_MIN_LFT,
+                       "need support for accept_ra_min_lft")
+  def testAcceptRaMinLftPIOLifetime(self):
+    self.SetAcceptRaMinLft(500)
+
+    # Test setup has sent an initial RA -- expire it.
+    self.SendRA(self.NETID, routerlft=0, piolft=0)
+    time.sleep(0.1) # Give the kernel time to notice our RA
+    # Check that the prefix route was deleted.
+    prefixroutes = self.FindRoutesWithDestination(self.OnlinkPrefix(6, self.NETID))
+    self.assertEqual([], prefixroutes)
+
+    # Sending a 0-lifetime PIO does not cause the address to be deleted, see
+    # rfc2462#section-5.5.3.
+    address = self.MyAddress(6, self.NETID)
+    self.iproute.DelAddress(address, 64, self.ifindices[self.NETID])
+
+    # PIO with lifetime 400 is ignored
+    self.SendRA(self.NETID, piolft=400)
+    time.sleep(0.1) # Give the kernel time to notice our RA
+    self.assertIsNone(self.MyAddress(6, self.NETID))
+
+    # PIO with lifetime 600 is processed
+    self.SendRA(self.NETID, piolft=600)
+    time.sleep(0.1) # Give the kernel time to notice our RA
+    self.assertIsNotNone(self.MyAddress(6, self.NETID))
+
+  @unittest.skipUnless(multinetwork_base.HAVE_ACCEPT_RA_MIN_LFT,
+                       "need support for accept_ra_min_lft")
+  def testAcceptRaMinLftRIOLifetime(self):
+    PREFIX = "2001:db8:8901:2300::"
+    PLEN = 64
+    PRF = 0
+
+    self.SetAcceptRaRtInfoMaxPlen(PLEN)
+    self.SetAcceptRaMinLft(500)
+
+    # RIO with lifetime 400 is ignored
+    self.SendRIO(400, PLEN, PREFIX, PRF)
+    time.sleep(0.1) # Give the kernel time to notice our RA
+    self.assertFalse(self.FindRoutesWithDestination(PREFIX))
+
+    # RIO with lifetime 600 is processed
+    self.SendRIO(600, PLEN, PREFIX, PRF)
+    time.sleep(0.1) # Give the kernel time to notice our RA
+    self.assertTrue(self.FindRoutesWithDestination(PREFIX))
+
+    # RIO with lifetime 0 deletes the route
+    self.SendRIO(0, PLEN, PREFIX, PRF)
+    time.sleep(0.1) # Give the kernel time to notice our RA
+    self.assertFalse(self.FindRoutesWithDestination(PREFIX))
+
+
 class RATest(multinetwork_base.MultiNetworkBaseTest):
 
   ND_ROUTER_ADVERT = 134
   ND_OPT_PREF64 = 38
   Pref64Option = cstruct.Struct("pref64_option", "!BBH12s",
                                 "type length lft_plc prefix")
+
+  # Android Common Kernels are always based off of an LTS release,
+  # skipping this (always failing due to lack of an ACK specific patch) test
+  # on Linus's kernels (and various other upstream dev branches) allows
+  # for easier testing of Linux rc's and various developer trees.
+  @unittest.skipUnless(net_test.IS_STABLE, "not STABLE/LTS kernel")
+  def testHasAutoconfTable(self):
+    self.assertTrue(multinetwork_base.HAVE_AUTOCONF_TABLE)
 
   def testDoesNotHaveObsoleteSysctl(self):
     self.assertFalse(os.path.isfile(
@@ -817,6 +954,7 @@ class RATest(multinetwork_base.MultiNetworkBaseTest):
         else:
           self.assertRaisesErrno(errno.ENETUNREACH, s.sendto, UDP_PAYLOAD,
                                  (net_test.IPV6_ADDR, 1234))
+        s.close()
 
     try:
       CheckIPv6Connectivity(True)
@@ -866,12 +1004,15 @@ class RATest(multinetwork_base.MultiNetworkBaseTest):
       msg = "After NA response, expecting %s" % desc
       self.ExpectPacketOn(netid, msg, expected)
 
+      s.close()
+
   # This test documents a known issue: routing tables are never deleted.
   @unittest.skipUnless(multinetwork_base.HAVE_AUTOCONF_TABLE,
                        "no support for per-table autoconf")
   def testLeftoverRoutes(self):
     def GetNumRoutes():
-      return len(open("/proc/net/ipv6_route").readlines())
+      with open("/proc/net/ipv6_route") as ipv6_route:
+        return len(ipv6_route.readlines())
 
     num_routes = GetNumRoutes()
     for i in range(10, 20):
@@ -893,7 +1034,6 @@ class RATest(multinetwork_base.MultiNetworkBaseTest):
     lft_plc = (lifetime & 0xfff8) | 0  # 96-bit prefix length
     return self.Pref64Option((self.ND_OPT_PREF64, 2, lft_plc, prefix))
 
-  @unittest.skipUnless(net_test.LINUX_VERSION >= (4, 9, 0), "not backported")
   def testPref64UserOption(self):
     # Open a netlink socket to receive RTM_NEWNDUSEROPT messages.
     s = netlink.NetlinkSocket(netlink.NETLINK_ROUTE, iproute.RTMGRP_ND_USEROPT)
@@ -912,6 +1052,7 @@ class RATest(multinetwork_base.MultiNetworkBaseTest):
       self.fail("Should have received an RTM_NEWNDUSEROPT message. "
                 "Please ensure the kernel supports receiving the "
                 "PREF64 RA option. Error: %s" % e)
+    s.close()
 
     # Check that the message is received correctly.
     nlmsghdr, data = cstruct.Read(data, netlink.NLMsgHdr)
@@ -926,6 +1067,27 @@ class RATest(multinetwork_base.MultiNetworkBaseTest):
     actual_opt = self.Pref64Option(data)
     self.assertEqual(opt, actual_opt)
 
+  def testRaFlags(self):
+    def GetInterfaceIpv6Flags(iface):
+      attrs = self.iproute.GetIflaAfSpecificData(iface, AF_INET6)
+      return int(attrs["IFLA_INET6_FLAGS"])
+
+    netid = random.choice(self.NETIDS)
+    iface = self.GetInterfaceName(netid)
+    expected = iproute.IF_RS_SENT | iproute.IF_RA_RCVD | iproute.IF_READY
+    self.assertEqual(expected, GetInterfaceIpv6Flags(iface))
+
+    self.SendRA(netid, m=1, o=0)
+    expected |= iproute.IF_RA_MANAGED
+    self.assertEqual(expected, GetInterfaceIpv6Flags(iface))
+
+    self.SendRA(netid, m=1, o=1)
+    expected |= iproute.IF_RA_OTHERCONF
+    self.assertEqual(expected, GetInterfaceIpv6Flags(iface))
+
+    self.SendRA(netid, m=0, o=1)
+    expected &= ~iproute.IF_RA_MANAGED
+    self.assertEqual(expected, GetInterfaceIpv6Flags(iface))
 
 
 class PMTUTest(multinetwork_base.InboundMarkingTest):
@@ -981,7 +1143,7 @@ class PMTUTest(multinetwork_base.InboundMarkingTest):
         if use_connect:
           s.connect((dstaddr, 1234))
 
-        payload = self.PAYLOAD_SIZE * "a"
+        payload = self.PAYLOAD_SIZE * b"a"
 
         # Send a packet and receive a packet too big.
         SendBigPacket(version, s, dstaddr, netid, payload)
@@ -999,7 +1161,7 @@ class PMTUTest(multinetwork_base.InboundMarkingTest):
 
         # If this is a connected socket, make sure the socket MTU was set.
         # Note that in IPv4 this only started working in Linux 3.6!
-        if use_connect and (version == 6 or net_test.LINUX_VERSION >= (3, 6)):
+        if use_connect:
           self.assertEqual(packets.PTB_MTU, self.GetSocketMTU(version, s))
 
         s.close()
@@ -1020,6 +1182,8 @@ class PMTUTest(multinetwork_base.InboundMarkingTest):
         self.assertEqual(iproute.RTN_UNICAST, rtmsg.type)
         metrics = attributes["RTA_METRICS"]
         self.assertEqual(packets.PTB_MTU, metrics["RTAX_MTU"])
+
+        s2.close()
 
   def testIPv4BasicPMTU(self):
     """Tests IPv4 path MTU discovery.
@@ -1120,6 +1284,10 @@ class UidRoutingTest(multinetwork_base.MultiNetworkBaseTest):
   def _Random():
     return random.randint(1000000, 2000000)
 
+  @staticmethod
+  def _RandomUid(cls):
+    return random.randint(cls.UID_RANGE_START, cls.UID_RANGE_END)
+
   def CheckGetAndSetRules(self, version):
     start, end = tuple(sorted([self._Random(), self._Random()]))
     table = self._Random()
@@ -1178,29 +1346,27 @@ class UidRoutingTest(multinetwork_base.MultiNetworkBaseTest):
     finally:
       self.iproute.FwmarkRule(version, False, 300, fwmask, 301, priority + 1)
 
-    # Test that EEXIST worksfor UID range rules too. This behaviour was only
-    # added in 4.8.
-    if net_test.LINUX_VERSION >= (4, 8, 0):
-      ranges = [(100, 101), (100, 102), (99, 101), (1234, 5678)]
-      dup = ranges[0]
-      try:
-        # Check that otherwise identical rules with different UID ranges can be
-        # created without EEXIST.
-        for start, end in ranges:
-          self.iproute.UidRangeRule(version, True, start, end, table, priority)
-        # ... but EEXIST is returned if the UID range is identical.
-        self.assertRaisesErrno(
-          errno.EEXIST,
-          self.iproute.UidRangeRule, version, True, dup[0], dup[1], table,
-          priority)
-      finally:
-        # Clean up.
-        for start, end in ranges + [dup]:
-          try:
-            self.iproute.UidRangeRule(version, False, start, end, table,
-                                      priority)
-          except IOError:
-            pass
+    # Test that EEXIST worksfor UID range rules too.
+    ranges = [(100, 101), (100, 102), (99, 101), (1234, 5678)]
+    dup = ranges[0]
+    try:
+      # Check that otherwise identical rules with different UID ranges can be
+      # created without EEXIST.
+      for start, end in ranges:
+        self.iproute.UidRangeRule(version, True, start, end, table, priority)
+      # ... but EEXIST is returned if the UID range is identical.
+      self.assertRaisesErrno(
+        errno.EEXIST,
+        self.iproute.UidRangeRule, version, True, dup[0], dup[1], table,
+        priority)
+    finally:
+      # Clean up.
+      for start, end in ranges + [dup]:
+        try:
+          self.iproute.UidRangeRule(version, False, start, end, table,
+                                    priority)
+        except IOError:
+          pass
 
   def testIPv4GetAndSetRules(self):
     self.CheckGetAndSetRules(4)
@@ -1208,7 +1374,6 @@ class UidRoutingTest(multinetwork_base.MultiNetworkBaseTest):
   def testIPv6GetAndSetRules(self):
     self.CheckGetAndSetRules(6)
 
-  @unittest.skipUnless(net_test.LINUX_VERSION >= (4, 9, 0), "not backported")
   def testDeleteErrno(self):
     for version in [4, 6]:
       table = self._Random()
@@ -1248,16 +1413,16 @@ class UidRoutingTest(multinetwork_base.MultiNetworkBaseTest):
 
   def testChangeFdAttributes(self):
     netid = random.choice(self.NETIDS)
-    uid = self._Random()
+    uid = self._RandomUid(self)
     table = self._TableForNetid(netid)
     remoteaddr = self.GetRemoteAddress(6)
     s = socket(AF_INET6, SOCK_DGRAM, 0)
 
     def CheckSendFails():
       self.assertRaisesErrno(errno.ENETUNREACH,
-                             s.sendto, "foo", (remoteaddr, 53))
+                             s.sendto, b"foo", (remoteaddr, 53))
     def CheckSendSucceeds():
-      self.assertEqual(len("foo"), s.sendto("foo", (remoteaddr, 53)))
+      self.assertEqual(len(b"foo"), s.sendto(b"foo", (remoteaddr, 53)))
 
     CheckSendFails()
     self.iproute.UidRangeRule(6, True, uid, uid, table, self.PRIORITY_UID)
@@ -1275,6 +1440,7 @@ class UidRoutingTest(multinetwork_base.MultiNetworkBaseTest):
       CheckSendFails()
     finally:
       self.iproute.UidRangeRule(6, False, uid, uid, table, self.PRIORITY_UID)
+      s.close()
 
 
 class RulesTest(net_test.NetworkTest):

@@ -441,14 +441,14 @@ int GPTDataCL::DoOptions(int argc, char* argv[]) {
                   break;
                case 'Z':
                   if (!pretend) {
-/* SHARP_EXTEND [19-1-1] exfat support Start */
+/* SHARP_EXTEND [19-1-2] exfat support Start */
                   /* SPRD: add for for format portable storage @{
                      DestroyGPT();
                      DestroyMBR();
                    */
                      DestroyGPT(true);
                   /* @} */
-/* SHARP_EXTEND [19-1-1] exfat support End */
+/* SHARP_EXTEND [19-1-2] exfat support End */
                   } // if
                   saveNonGPT = 1;
                   saveData = 0;

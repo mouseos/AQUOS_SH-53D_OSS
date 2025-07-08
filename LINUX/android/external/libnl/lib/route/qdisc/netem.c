@@ -12,17 +12,52 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/tc.h>
+#include "nl-default.h"
+
 #include <netlink/netlink.h>
 #include <netlink/utils.h>
-#include <netlink-private/route/tc-api.h>
 #include <netlink/route/qdisc.h>
 #include <netlink/route/qdisc/netem.h>
 
-#include "netlink-private/utils.h"
+#include "tc-api.h"
+#include "nl-priv-dynamic-core/nl-core.h"
 
 /** @cond SKIP */
+struct rtnl_netem_corr {
+	uint32_t nmc_delay;
+	uint32_t nmc_loss;
+	uint32_t nmc_duplicate;
+};
+
+struct rtnl_netem_reo {
+	uint32_t nmro_probability;
+	uint32_t nmro_correlation;
+};
+
+struct rtnl_netem_crpt {
+	uint32_t nmcr_probability;
+	uint32_t nmcr_correlation;
+};
+
+struct rtnl_netem_dist {
+	int16_t *dist_data;
+	size_t dist_size;
+};
+
+struct rtnl_netem {
+	uint32_t qnm_latency;
+	uint32_t qnm_limit;
+	uint32_t qnm_loss;
+	uint32_t qnm_gap;
+	uint32_t qnm_duplicate;
+	uint32_t qnm_jitter;
+	uint32_t qnm_mask;
+	struct rtnl_netem_corr qnm_corr;
+	struct rtnl_netem_reo qnm_ro;
+	struct rtnl_netem_crpt qnm_crpt;
+	struct rtnl_netem_dist qnm_dist;
+};
+
 #define SCH_NETEM_ATTR_LATENCY		0x0001
 #define SCH_NETEM_ATTR_LIMIT		0x0002
 #define SCH_NETEM_ATTR_LOSS		0x0004
@@ -686,7 +721,7 @@ int rtnl_netem_get_duplicate(struct rtnl_qdisc *qdisc)
  * Set packet duplication correlation probability of netem qdisc.
  * @arg qdisc		Netem qdisc to be modified.
  * @arg prob		New packet duplication correlation probability.
- * @return 0 on sucess or a negative error code.
+ * @return 0 on success or a negative error code.
  */
 void rtnl_netem_set_duplicate_correlation(struct rtnl_qdisc *qdisc, int prob)
 {
@@ -937,7 +972,7 @@ int rtnl_netem_set_delay_distribution(struct rtnl_qdisc *qdisc, const char *dist
 		return -nl_syserr2nlerr(errno);
 
 	data = (int16_t *) calloc(MAXDIST, sizeof(int16_t));
-	line = (char *) calloc(sizeof(char), len + 1);
+	line = (char *) calloc(len + 1, sizeof(char));
 	if (!data || !line) {
 	    fclose(f);
 	    return -NLE_NOMEM;
@@ -979,12 +1014,12 @@ static struct rtnl_tc_ops netem_ops = {
 	.to_msg_fill_raw	= netem_msg_fill_raw,
 };
 
-static void __init netem_init(void)
+static void _nl_init netem_init(void)
 {
 	rtnl_tc_register(&netem_ops);
 }
 
-static void __exit netem_exit(void)
+static void _nl_exit netem_exit(void)
 {
 	rtnl_tc_unregister(&netem_ops);
 }

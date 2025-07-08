@@ -20,15 +20,22 @@
  * @{
  */
 
-#include <netlink-private/netlink.h>
-#include <netlink-private/tc.h>
+#include "nl-default.h"
+
 #include <netlink/netlink.h>
 #include <netlink/utils.h>
-#include <netlink-private/route/tc-api.h>
 #include <netlink/route/qdisc.h>
 #include <netlink/route/qdisc/prio.h>
 
+#include "tc-api.h"
+
 /** @cond SKIP */
+struct rtnl_prio {
+	uint32_t qp_bands;
+	uint8_t qp_priomap[TC_PRIO_MAX + 1];
+	uint32_t qp_mask;
+};
+
 #define SCH_PRIO_ATTR_BANDS	1
 #define SCH_PRIO_ATTR_PRIOMAP	2
 /** @endcond */
@@ -273,13 +280,13 @@ static struct rtnl_tc_ops pfifo_fast_ops = {
 	.to_msg_fill		= prio_msg_fill,
 };
 
-static void __init prio_init(void)
+static void _nl_init prio_init(void)
 {
 	rtnl_tc_register(&prio_ops);
 	rtnl_tc_register(&pfifo_fast_ops);
 }
 
-static void __exit prio_exit(void)
+static void _nl_exit prio_exit(void)
 {
 	rtnl_tc_unregister(&prio_ops);
 	rtnl_tc_unregister(&pfifo_fast_ops);

@@ -319,6 +319,36 @@ enum {
 	NL_CAPABILITY_VERSION_3_7_0 = 33,
 #define NL_CAPABILITY_VERSION_3_7_0 NL_CAPABILITY_VERSION_3_7_0
 
+	/**
+	 * The library version is libnl3 3.8.0 or newer. This capability should never be backported.
+	 */
+	NL_CAPABILITY_VERSION_3_8_0 = 34,
+#define NL_CAPABILITY_VERSION_3_8_0 NL_CAPABILITY_VERSION_3_8_0
+
+	/**
+	 * The library version is libnl3 3.9.0 or newer. This capability should never be backported.
+	 */
+	NL_CAPABILITY_VERSION_3_9_0 = 35,
+#define NL_CAPABILITY_VERSION_3_9_0 NL_CAPABILITY_VERSION_3_9_0
+
+	/**
+	 * The library version is libnl3 3.10.0 or newer. This capability should never be backported.
+	 */
+	NL_CAPABILITY_VERSION_3_10_0 = 36,
+#define NL_CAPABILITY_VERSION_3_10_0 NL_CAPABILITY_VERSION_3_10_0
+
+	/**
+	 * The library version is libnl3 3.11.0 or newer. This capability should never be backported.
+	 */
+	NL_CAPABILITY_VERSION_3_11_0 = 37,
+#define NL_CAPABILITY_VERSION_3_11_0 NL_CAPABILITY_VERSION_3_11_0
+
+	/**
+	 * The library version is libnl3 3.12.0 or newer. This capability should never be backported.
+	 */
+	NL_CAPABILITY_VERSION_3_12_0 = 38,
+#define NL_CAPABILITY_VERSION_3_12_0 NL_CAPABILITY_VERSION_3_12_0
+
 	__NL_CAPABILITY_MAX,
 	NL_CAPABILITY_MAX = (__NL_CAPABILITY_MAX - 1),
 #define NL_CAPABILITY_MAX NL_CAPABILITY_MAX

@@ -3,9 +3,12 @@
  * Copyright (c) 2010 Thomas Graf <tgraf@suug.ch>
  */
 
+#include "nl-default.h"
+
 #include <netlink/cli/utils.h>
 #include <netlink/cli/tc.h>
-#include <netlink-private/route/tc-api.h>
+
+#include "nl-priv-dynamic-route/nl-priv-dynamic-route.h"
 
 /**
  * @ingroup cli

@@ -40,9 +40,6 @@ cc_library {
     host_supported: true,
     vendor_available: true,
     product_available: true,
-    vndk: {
-        enabled: true,
-    },
 
     target: {
         darwin: {
@@ -69,6 +66,7 @@ cc_library {
         "lib/genl/genl.c",
         "lib/genl/mngt.c",
         "lib/netfilter/nfnl.c",
+        "lib/route/addr.c",
         "lib/route/link.c",
         "lib/route/link/api.c",
         "lib/route/link/macsec.c",
@@ -85,6 +83,7 @@ cc_library {
 
     local_include_dirs: [
         "include",
+        "lib/route",
     ],
     export_include_dirs: ["include"],
     cflags: [
@@ -98,11 +97,12 @@ cc_library {
         "-Wno-pointer-arith",
         "-UNDEBUG",
         "-D_GNU_SOURCE",
-        "-DSYSCONFDIR=\"\\\"/etc/libnl\\\"\"",
+        "-D_NL_SYSCONFDIR_LIBNL=\"\\\"/etc/libnl\\\"\"",
     ],
 
     sanitize: {
         integer_overflow: true,
+        blocklist: "libnl_blocklist.txt",
     },
     apex_available: [
         "//apex_available:platform",
